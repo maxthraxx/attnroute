@@ -826,7 +826,7 @@ mypy attnroute/
 
 MIT License
 
-Copyright (c) 2024 Jesse Morgan
+Copyright (c) 2024 jeranaias
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -850,7 +850,7 @@ SOFTWARE.
 
 ## Author
 
-**Jesse Morgan**
+**jeranaias**
 
 - GitHub: [@jeranaias](https://github.com/jeranaias)
 - Email: jeranaias@gmail.com
@@ -882,6 +882,10 @@ Built on ideas from:
 
 ---
 
-**attnroute** — Intelligent context routing for Claude Code.
+<p align="center">
+  <strong>attnroute</strong> — Intelligent context routing for Claude Code.
+</p>
 
-*99.87% token reduction. 309ms latency. Zero config required.*
+<p align="center">
+  <em>90%+ token reduction. 309ms latency. Zero config required.</em>
+</p>

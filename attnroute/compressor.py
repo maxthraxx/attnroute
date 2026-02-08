@@ -34,17 +34,24 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Any
 import hashlib
 
-# Try to import telemetry lib for consistent paths
+# Try to import telemetry lib for consistent paths and token estimation
 try:
-    from attnroute.telemetry_lib import TELEMETRY_DIR, windows_utf8_io
+    from attnroute.telemetry_lib import TELEMETRY_DIR, windows_utf8_io, estimate_tokens
     windows_utf8_io()
+    TELEMETRY_LIB_AVAILABLE = True
 except ImportError:
     try:
         sys.path.insert(0, str(Path(__file__).parent))
-        from telemetry_lib import TELEMETRY_DIR, windows_utf8_io
+        from telemetry_lib import TELEMETRY_DIR, windows_utf8_io, estimate_tokens
         windows_utf8_io()
+        TELEMETRY_LIB_AVAILABLE = True
     except ImportError:
         TELEMETRY_DIR = Path.home() / ".claude" / "telemetry"
+        TELEMETRY_LIB_AVAILABLE = False
+        # Fallback estimate_tokens if telemetry_lib not available
+        def estimate_tokens(text: str) -> int:
+            """Estimate token count from text (rough: ~3 chars per token)."""
+            return len(text) // 3
 
 # Try to import Anthropic SDK for compression
 try:
@@ -55,6 +62,8 @@ except ImportError:
     ANTHROPIC_AVAILABLE = False
 
 # Try to import ChromaDB for semantic search
+# NOTE: ChromaDB support is prepared but not yet implemented
+# Future enhancement: Add semantic vector search alongside FTS5
 try:
     import chromadb
     from chromadb.config import Settings
@@ -73,6 +82,19 @@ COMPRESSION_MODEL = "claude-3-haiku-20240307"  # Fast, cheap model for compressi
 MAX_SUMMARY_TOKENS = 500
 MAX_FACTS_COUNT = 10
 MAX_CONCEPTS_COUNT = 5
+MAX_INPUT_CHARS = 10000            # Maximum input chars to send to compression API
+API_MAX_TOKENS = 1024              # Maximum tokens in API response
+
+# Search and retrieval limits
+DEFAULT_SEARCH_LIMIT = 20          # Default FTS search result limit
+DEFAULT_RECENT_LIMIT = 50          # Default recent observations limit
+DEFAULT_INDEX_LIMIT = 10           # Default Layer 1 index search limit
+TIMELINE_WINDOW_SIZE = 3           # Observations before/after in timeline
+RECENT_CONTEXT_LIMIT = 5           # Default recent context limit
+RECENT_CONTEXT_BUDGET = 2000       # Default token budget for recent context
+
+# Token estimation
+CHARS_PER_TOKEN_FALLBACK = 3       # Fallback estimation (conservative)
 
 
 # ============================================================================
@@ -263,7 +285,7 @@ class ObservationDB:
         finally:
             conn.close()
 
-    def get_before(self, timestamp: datetime, limit: int = 5) -> List[CompressedObservation]:
+    def get_before(self, timestamp: datetime, limit: int = RECENT_CONTEXT_LIMIT) -> List[CompressedObservation]:
         """Get observations before a timestamp."""
         conn = sqlite3.connect(str(self.db_path))
         try:
@@ -278,7 +300,7 @@ class ObservationDB:
         finally:
             conn.close()
 
-    def get_after(self, timestamp: datetime, limit: int = 5) -> List[CompressedObservation]:
+    def get_after(self, timestamp: datetime, limit: int = RECENT_CONTEXT_LIMIT) -> List[CompressedObservation]:
         """Get observations after a timestamp."""
         conn = sqlite3.connect(str(self.db_path))
         try:
@@ -293,7 +315,7 @@ class ObservationDB:
         finally:
             conn.close()
 
-    def search_fts(self, query: str, limit: int = 20) -> List[CompressedObservation]:
+    def search_fts(self, query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> List[CompressedObservation]:
         """Full-text search across summaries and facts."""
         conn = sqlite3.connect(str(self.db_path))
         try:
@@ -314,7 +336,7 @@ class ObservationDB:
         finally:
             conn.close()
 
-    def search_like(self, query: str, limit: int = 20) -> List[CompressedObservation]:
+    def search_like(self, query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> List[CompressedObservation]:
         """Fallback LIKE search."""
         conn = sqlite3.connect(str(self.db_path))
         try:
@@ -330,7 +352,7 @@ class ObservationDB:
         finally:
             conn.close()
 
-    def get_recent(self, limit: int = 50) -> List[CompressedObservation]:
+    def get_recent(self, limit: int = DEFAULT_RECENT_LIMIT) -> List[CompressedObservation]:
         """Get most recent observations."""
         conn = sqlite3.connect(str(self.db_path))
         try:
@@ -433,11 +455,6 @@ Respond with a JSON object containing:
 Be concise but preserve critical technical details that would be needed to understand this work later."""
 
 
-def estimate_tokens(text: str) -> int:
-    """Estimate token count from text (rough: ~3 chars per token)."""
-    return len(text) // 3
-
-
 def make_observation_id() -> str:
     """Generate unique observation ID."""
     import random
@@ -534,10 +551,9 @@ class ObservationCompressor:
             return self._fallback_compress(tool_name, tool_output, session_id)
 
         # Truncate very long outputs for API call
-        max_input = 10000
-        truncated_output = tool_output[:max_input]
-        if len(tool_output) > max_input:
-            truncated_output += f"\n\n[...truncated {len(tool_output) - max_input} chars...]"
+        truncated_output = tool_output[:MAX_INPUT_CHARS]
+        if len(tool_output) > MAX_INPUT_CHARS:
+            truncated_output += f"\n\n[...truncated {len(tool_output) - MAX_INPUT_CHARS} chars...]"
 
         prompt = COMPRESSION_PROMPT.format(
             tool_name=tool_name,
@@ -547,7 +563,7 @@ class ObservationCompressor:
         try:
             response = self.client.messages.create(
                 model=COMPRESSION_MODEL,
-                max_tokens=1024,
+                max_tokens=API_MAX_TOKENS,
                 messages=[{"role": "user", "content": prompt}]
             )
 
@@ -585,7 +601,18 @@ class ObservationCompressor:
             print(f"[compressor] Failed to parse response: {e}", file=sys.stderr)
             return self._fallback_compress(tool_name, tool_output, session_id)
         except Exception as e:
-            print(f"[compressor] API error: {e}", file=sys.stderr)
+            # Provide better error messages for common failures
+            error_msg = str(e)
+            if "rate_limit" in error_msg.lower() or "429" in error_msg:
+                print(f"[compressor] Rate limit exceeded, using fallback", file=sys.stderr)
+            elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                print(f"[compressor] API timeout, using fallback", file=sys.stderr)
+            elif "connection" in error_msg.lower() or "network" in error_msg.lower():
+                print(f"[compressor] Network error, using fallback", file=sys.stderr)
+            elif "401" in error_msg or "403" in error_msg or "invalid" in error_msg.lower():
+                print(f"[compressor] Authentication error, using fallback", file=sys.stderr)
+            else:
+                print(f"[compressor] API error: {e}", file=sys.stderr)
             return self._fallback_compress(tool_name, tool_output, session_id)
 
     def _fallback_compress(self, tool_name: str, tool_output: str,
@@ -631,7 +658,7 @@ class ProgressiveRetriever:
     def __init__(self, db: Optional[ObservationDB] = None):
         self.db = db or ObservationDB()
 
-    def layer1_search(self, query: str, limit: int = 10) -> List[ObservationIndex]:
+    def layer1_search(self, query: str, limit: int = DEFAULT_INDEX_LIMIT) -> List[ObservationIndex]:
         """Layer 1: Return compact index entries only."""
         results = self.db.search_fts(query, limit=limit * 2)
 
@@ -644,7 +671,7 @@ class ProgressiveRetriever:
             concepts=r.concepts[:3],
         ) for r in results[:limit]]
 
-    def layer2_timeline(self, obs_id: str, window: int = 3) -> List[CompressedObservation]:
+    def layer2_timeline(self, obs_id: str, window: int = TIMELINE_WINDOW_SIZE) -> List[CompressedObservation]:
         """Layer 2: Get timeline context around an observation."""
         obs = self.db.get(obs_id)
         if not obs:
@@ -675,7 +702,7 @@ class ProgressiveRetriever:
 
         return "\n".join(lines)
 
-    def get_recent_context(self, limit: int = 5, token_budget: int = 2000) -> str:
+    def get_recent_context(self, limit: int = RECENT_CONTEXT_LIMIT, token_budget: int = RECENT_CONTEXT_BUDGET) -> str:
         """Get recent observations within token budget."""
         observations = self.db.get_recent(limit=limit)
         lines = []

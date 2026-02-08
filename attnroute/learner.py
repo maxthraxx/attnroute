@@ -295,13 +295,7 @@ class Learner:
 
     def _load(self) -> dict:
         """Load learned state from disk."""
-        if LEARNED_STATE_FILE.exists():
-            try:
-                return json.loads(LEARNED_STATE_FILE.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-
-        return {
+        default_state = {
             "version": 2,
             "meta": {
                 "turns_learned": 0,
@@ -317,14 +311,35 @@ class Learner:
             "usefulness": {},               # file → {injected, accessed, edited, score}
         }
 
+        if LEARNED_STATE_FILE.exists():
+            try:
+                data = json.loads(LEARNED_STATE_FILE.read_text(encoding="utf-8"))
+                # Validate structure: ensure required keys exist
+                if not isinstance(data, dict) or "meta" not in data:
+                    return default_state
+                # Merge with defaults to handle version upgrades
+                for key in default_state:
+                    if key not in data:
+                        data[key] = default_state[key]
+                return data
+            except (json.JSONDecodeError, UnicodeDecodeError, Exception):
+                # Corrupt file - return fresh state
+                pass
+
+        return default_state
+
     def _save(self):
         """Persist learned state to disk."""
         ensure_telemetry_dir()
         try:
-            LEARNED_STATE_FILE.write_text(
+            # Atomic write: write to temp file, then rename
+            temp_file = LEARNED_STATE_FILE.with_suffix('.tmp')
+            temp_file.write_text(
                 json.dumps(self.state, indent=2, default=str),
                 encoding="utf-8"
             )
+            # Atomic rename (safe on POSIX and Windows)
+            temp_file.replace(LEARNED_STATE_FILE)
         except Exception:
             pass
 

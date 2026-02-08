@@ -213,11 +213,22 @@ def make_turn_id() -> str:
 # TOKEN ESTIMATION
 # ============================================================================
 
+# Try to import tiktoken for accurate token counting
+try:
+    import tiktoken
+    _enc = tiktoken.get_encoding("cl100k_base")
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    TIKTOKEN_AVAILABLE = False
+    _enc = None
+
+
 def estimate_tokens(text: str) -> int:
     """
     Estimate BPE token count from text.
 
-    Uses heuristic ratios:
+    Uses tiktoken (cl100k_base encoding) when available for accurate counts.
+    Falls back to heuristic ratios when tiktoken is not installed:
     - Code-heavy content: ~2.5 chars/token (lots of short identifiers, brackets)
     - Natural language: ~4.0 chars/token (English prose)
     - Markdown headers/formatting: ~3.0 chars/token
@@ -227,6 +238,11 @@ def estimate_tokens(text: str) -> int:
     if not text:
         return 0
 
+    # Use tiktoken if available
+    if TIKTOKEN_AVAILABLE and _enc:
+        return len(_enc.encode(text))
+
+    # Fallback to heuristic estimation
     total_chars = len(text)
     if total_chars == 0:
         return 0

@@ -45,7 +45,29 @@ INDEX_DB = TELEMETRY_DIR / "search_index.db"
 
 # Try BM25S (fast sparse retrieval)
 try:
-    import bm25s
+    # Suppress bm25s's "resource module not available on Windows" warning
+    # bm25s's C extension prints directly to stdout during import
+    import os
+    if os.name == 'nt':  # Windows
+        # Temporarily redirect stdout FD to devnull
+        # Must flush and recreate file object for FD redirect to work
+        import sys as _sys
+        _sys.stdout.flush()
+        stdout_fd = _sys.stdout.fileno()
+        old_stdout = os.dup(stdout_fd)
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull_fd, stdout_fd)
+        _sys.stdout = os.fdopen(stdout_fd, 'w')
+        try:
+            import bm25s
+        finally:
+            # Restore stdout
+            _sys.stdout.flush()
+            os.dup2(old_stdout, stdout_fd)
+            _sys.stdout = os.fdopen(old_stdout, 'w')
+            os.close(devnull_fd)
+    else:
+        import bm25s
     BM25_AVAILABLE = True
 except ImportError:
     BM25_AVAILABLE = False

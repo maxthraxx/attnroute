@@ -42,6 +42,20 @@ try:
 except ImportError:
     NETWORKX_AVAILABLE = False
 
+# Try to import telemetry_lib for accurate token counting
+try:
+    from attnroute.telemetry_lib import estimate_tokens
+    TELEMETRY_LIB_AVAILABLE = True
+except ImportError:
+    try:
+        from telemetry_lib import estimate_tokens
+        TELEMETRY_LIB_AVAILABLE = True
+    except ImportError:
+        TELEMETRY_LIB_AVAILABLE = False
+        def estimate_tokens(text: str) -> int:
+            """Fallback token estimate."""
+            return len(text) // 4
+
 
 # Language configuration
 LANGUAGE_MAP = {
@@ -60,6 +74,32 @@ LANGUAGE_MAP = {
     '.rb': 'ruby',
     '.php': 'php',
 }
+
+# Token estimation constants
+CHARS_PER_TOKEN = 4                # Rough estimate: 4 characters per token
+SYMBOL_OVERHEAD_TOKENS = 5         # Extra tokens per symbol for formatting
+
+# PageRank configuration
+PAGERANK_ALPHA = 0.85              # Damping factor for PageRank algorithm (0.85 is standard)
+
+# Relevance scoring weights
+ACTIVE_FILE_BOOST = 10.0           # Boost score for files currently being edited
+FILENAME_MATCH_BOOST = 5.0         # Boost score when query matches filename
+SYMBOL_NAME_MATCH_BOOST = 3.0      # Boost score when query matches symbol name
+SYMBOL_PART_MATCH_BOOST = 1.0      # Boost score when query matches part of symbol name
+
+# Output limits
+PARAM_TRUNCATE_LENGTH = 50         # Truncate function parameters longer than this
+IMPORT_DISPLAY_LIMIT = 5           # Maximum imports to show in detailed view
+SYMBOL_BRIEF_LIMIT = 5             # Maximum symbols to show in brief format
+IMPORT_TRUNCATE_LENGTH = 60        # Truncate import statements longer than this
+DOCSTRING_TRUNCATE_LENGTH = 100    # Truncate docstrings longer than this
+
+# Default token budgets
+DEFAULT_TOKEN_BUDGET = 1000        # Default budget for repo map generation
+DEFAULT_CONTEXT_BUDGET = 2000      # Default budget for detailed context
+FILE_HEADER_TOKENS = 5             # Token overhead for file header
+TRUNCATE_MARKER_TOKENS = 10        # Token overhead for truncation marker
 
 
 @dataclass
@@ -262,8 +302,8 @@ class RepoMapper:
 
         walk(tree.root_node)
 
-        # Estimate tokens (~4 chars per token)
-        token_estimate = sum(len(s.signature) // 4 + 5 for s in symbols)
+        # Estimate tokens using improved estimation
+        token_estimate = sum(estimate_tokens(s.signature) + 1 for s in symbols)
 
         return FileSymbols(
             path=str(filepath),
@@ -286,7 +326,7 @@ class RepoMapper:
                 if match := re.match(r'^(async\s+)?def\s+(\w+)\s*\(([^)]*)\)', line):
                     name = match.group(2)
                     params = match.group(3)
-                    sig = f"def {name}({params[:50]}{'...' if len(params) > 50 else ''}):"
+                    sig = f"def {name}({params[:PARAM_TRUNCATE_LENGTH]}{'...' if len(params) > PARAM_TRUNCATE_LENGTH else ''}):"
                     symbols.append(Symbol(name=name, kind='function', signature=sig, line=i))
                 elif match := re.match(r'^class\s+(\w+)', line):
                     name = match.group(1)
@@ -320,7 +360,7 @@ class RepoMapper:
                     kind = match.group(2)
                     symbols.append(Symbol(name=name, kind=kind, signature=f"type {name} {kind}", line=i))
 
-        token_estimate = sum(len(s.signature) // 4 + 5 for s in symbols)
+        token_estimate = sum(estimate_tokens(s.signature) + 1 for s in symbols)
 
         return FileSymbols(
             path=str(filepath),
@@ -384,7 +424,7 @@ class RepoMapper:
             return {f: 1.0 for f in self.file_symbols}
 
         try:
-            scores = nx.pagerank(self.dependency_graph, alpha=0.85)
+            scores = nx.pagerank(self.dependency_graph, alpha=PAGERANK_ALPHA)
             return scores
         except Exception:
             return {f: 1.0 for f in self.file_symbols}
@@ -393,7 +433,7 @@ class RepoMapper:
         self,
         query: Optional[str] = None,
         active_files: Optional[List[str]] = None,
-        token_budget: int = 1000,
+        token_budget: int = DEFAULT_TOKEN_BUDGET,
     ) -> str:
         """
         Generate a repo map within the token budget.
@@ -420,7 +460,7 @@ class RepoMapper:
 
         # Build map within budget
         lines = ["# Repository Map\n"]
-        tokens_used = 10  # Header
+        tokens_used = TRUNCATE_MARKER_TOKENS  # Header overhead
 
         for filepath, score in ranked_files:
             file_info = self.file_symbols.get(filepath)
@@ -428,11 +468,11 @@ class RepoMapper:
                 continue
 
             # Estimate tokens for this file
-            file_tokens = file_info.token_estimate + 5  # +5 for file header
+            file_tokens = file_info.token_estimate + FILE_HEADER_TOKENS
 
             if tokens_used + file_tokens > token_budget:
                 # Try to fit at least the file name
-                if tokens_used + 10 < token_budget:
+                if tokens_used + TRUNCATE_MARKER_TOKENS < token_budget:
                     lines.append(f"\n## {filepath}")
                     lines.append("  # ... (truncated)")
                 break
@@ -470,25 +510,25 @@ class RepoMapper:
             if active_files:
                 for active in active_files:
                     if active in filepath or filepath in active:
-                        score += 10.0
+                        score += ACTIVE_FILE_BOOST
 
             # Query matching
             if query:
                 query_lower = query.lower()
                 # Match file name
                 if Path(filepath).stem.lower() in query_lower:
-                    score += 5.0
+                    score += FILENAME_MATCH_BOOST
                 # Match symbols
                 file_info = self.file_symbols[filepath]
                 for symbol in file_info.symbols:
                     if symbol.name.lower() in query_lower:
-                        score += 3.0
+                        score += SYMBOL_NAME_MATCH_BOOST
                     # Fuzzy match (underscore/camel case)
                     name_parts = re.split(r'[_\s]', symbol.name.lower())
                     name_parts += re.findall(r'[A-Z][a-z]+', symbol.name)
                     for part in name_parts:
                         if part.lower() in query_lower:
-                            score += 1.0
+                            score += SYMBOL_PART_MATCH_BOOST
 
             scores[filepath] = score
 
@@ -498,7 +538,7 @@ class RepoMapper:
         self,
         files: List[str],
         include_related: bool = True,
-        token_budget: int = 2000,
+        token_budget: int = DEFAULT_CONTEXT_BUDGET,
     ) -> str:
         """
         Get detailed context for specific files.
@@ -546,7 +586,7 @@ class RepoMapper:
             for filepath in target_files - set(files):
                 if filepath in self.file_symbols:
                     file_info = self.file_symbols[filepath]
-                    brief = f"  {filepath}: {', '.join(s.name for s in file_info.symbols[:5])}"
+                    brief = f"  {filepath}: {', '.join(s.name for s in file_info.symbols[:SYMBOL_BRIEF_LIMIT])}"
                     if len(brief) // 4 < remaining_budget:
                         lines.append(brief)
                         remaining_budget -= len(brief) // 4
@@ -559,13 +599,13 @@ class RepoMapper:
 
         if file_info.imports:
             lines.append("  # Imports:")
-            for imp in file_info.imports[:5]:
-                lines.append(f"  #   {imp[:60]}")
+            for imp in file_info.imports[:IMPORT_DISPLAY_LIMIT]:
+                lines.append(f"  #   {imp[:IMPORT_TRUNCATE_LENGTH]}")
 
         for symbol in file_info.symbols:
             lines.append(f"  {symbol.signature}")
             if symbol.docstring:
-                lines.append(f"    \"\"\"{symbol.docstring[:100]}...\"\"\"")
+                lines.append(f"    \"\"\"{symbol.docstring[:DOCSTRING_TRUNCATE_LENGTH]}...\"\"\"")
 
         return lines
 
@@ -581,7 +621,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate repository map")
     parser.add_argument("path", nargs="?", default=".", help="Repository path")
     parser.add_argument("--query", "-q", help="Query to focus the map")
-    parser.add_argument("--tokens", "-t", type=int, default=1000, help="Token budget")
+    parser.add_argument("--tokens", "-t", type=int, default=DEFAULT_TOKEN_BUDGET, help="Token budget")
     parser.add_argument("--verbose", "-v", action="store_true")
 
     args = parser.parse_args()

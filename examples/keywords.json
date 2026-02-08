@@ -1,0 +1,15 @@
+{
+  "keywords": {
+    "src/api.py": ["api", "endpoint", "route", "handler", "request", "response"],
+    "src/models.py": ["model", "database", "schema", "orm", "query"],
+    "src/auth.py": ["auth", "login", "logout", "session", "token", "password"],
+    "src/config.py": ["config", "settings", "environment", "env"],
+    "docs/api.md": ["api", "documentation", "reference", "endpoint"],
+    "docs/setup.md": ["install", "setup", "configure", "getting started"]
+  },
+  "pinned": [
+    "README.md",
+    "src/config.py",
+    "docs/overview.md"
+  ]
+}

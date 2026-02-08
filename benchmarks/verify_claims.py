@@ -56,7 +56,11 @@ def verify_tree_sitter():
 
     try:
         # Try the repo_map's tree-sitter check
-        from repo_map import TREE_SITTER_AVAILABLE
+        try:
+            from attnroute.repo_map import TREE_SITTER_AVAILABLE
+        except ImportError:
+            from repo_map import TREE_SITTER_AVAILABLE
+
         if TREE_SITTER_AVAILABLE:
             print(f"  [PASS] tree-sitter available via repo_map")
             return True
@@ -82,12 +86,17 @@ def verify_repo_map():
     print("=" * 70)
 
     try:
-        from repo_map import RepoMapper
+        from attnroute.repo_map import RepoMapper
         print(f"  [PASS] RepoMapper module available")
         return True
-    except ImportError as e:
-        print(f"  [FAIL] RepoMapper not available: {e}")
-        return False
+    except ImportError:
+        try:
+            from repo_map import RepoMapper
+            print(f"  [PASS] RepoMapper module available")
+            return True
+        except ImportError as e:
+            print(f"  [FAIL] RepoMapper not available: {e}")
+            return False
 
 
 def count_tokens(text: str, tokenizer) -> int:
@@ -99,7 +108,10 @@ def count_tokens(text: str, tokenizer) -> int:
 
 def measure_repo(repo_path: Path, tokenizer) -> Dict:
     """Measure a repository and return verifiable results."""
-    from repo_map import RepoMapper
+    try:
+        from attnroute.repo_map import RepoMapper
+    except ImportError:
+        from repo_map import RepoMapper
 
     print(f"\n  Measuring: {repo_path}")
     print(f"  " + "-" * 50)

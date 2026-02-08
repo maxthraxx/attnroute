@@ -239,7 +239,10 @@ def measure_repo_stats(repo_path: Path, extensions: List[str]) -> Dict:
 def benchmark_attnroute(repo_path: Path, token_counter: TokenCounter,
                          num_runs: int = 5) -> Tuple[Dict, List[BenchmarkRun]]:
     """Run attnroute benchmark with multiple runs for statistics."""
-    from repo_map import RepoMapper
+    try:
+        from attnroute.repo_map import RepoMapper
+    except ImportError:
+        from repo_map import RepoMapper
 
     runs = []
 

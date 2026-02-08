@@ -142,14 +142,14 @@ def cmd_compress(args):
     """Memory compression commands."""
     try:
         from attnroute.compressor import main as compressor_main
-    except ImportError:
-        print("Memory compression not available.", file=sys.stderr)
+    except ImportError as e:
+        print(f"Memory compression not available: {e}", file=sys.stderr)
         print("Install compression dependencies: pip install attnroute[compression]", file=sys.stderr)
         sys.exit(1)
 
     original_argv = sys.argv
     sys.argv = ["attnroute-compress", args.subcommand]
-    if args.query:
+    if hasattr(args, 'query') and args.query:
         sys.argv.append(args.query)
     try:
         compressor_main()
@@ -161,8 +161,8 @@ def cmd_graph(args):
     """Dependency graph commands."""
     try:
         from attnroute.graph_retriever import main as graph_main
-    except ImportError:
-        print("Graph retriever not available.", file=sys.stderr)
+    except ImportError as e:
+        print(f"Graph retriever not available: {e}", file=sys.stderr)
         print("Install graph dependencies: pip install attnroute[graph]", file=sys.stderr)
         sys.exit(1)
 
@@ -170,6 +170,10 @@ def cmd_graph(args):
     sys.argv = ["attnroute-graph", args.subcommand]
     if hasattr(args, 'query') and args.query:
         sys.argv.append(args.query)
+    if hasattr(args, 'path') and args.path:
+        sys.argv.extend(["--path", args.path])
+    if hasattr(args, 'tokens') and args.tokens:
+        sys.argv.extend(["--tokens", str(args.tokens)])
     try:
         graph_main()
     finally:
@@ -289,15 +293,17 @@ For more information, visit: https://github.com/jeranaias/attnroute
 
     # compress command
     compress_parser = subparsers.add_parser("compress", help="Memory compression utilities")
-    compress_parser.add_argument("subcommand", choices=["stats", "search", "recent"],
+    compress_parser.add_argument("subcommand", choices=["stats", "search", "recent", "test"],
                                  help="Compression subcommand")
-    compress_parser.add_argument("query", nargs="?", help="Search query (for search command)")
+    compress_parser.add_argument("query", nargs="?", help="Search query (for search command) or text (for test command)")
 
     # graph command
     graph_parser = subparsers.add_parser("graph", help="Dependency graph utilities")
     graph_parser.add_argument("subcommand", choices=["stats", "build", "rank", "map"],
                               help="Graph subcommand")
     graph_parser.add_argument("query", nargs="?", help="Query for rank/map commands")
+    graph_parser.add_argument("--path", type=str, help="Repository path (default: current directory)")
+    graph_parser.add_argument("--tokens", type=int, help="Token budget for map command (default: 2000)")
 
     # history command
     history_parser = subparsers.add_parser("history", help="Show attention history")

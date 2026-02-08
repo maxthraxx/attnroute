@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 
-def main(scenario: str = None):
+def main(scenario: str = None, output_file: str = None):
     """Main benchmark entry point."""
     # Import verify_claims from same directory
     benchmark_dir = Path(__file__).parent
@@ -43,6 +43,9 @@ def main(scenario: str = None):
         from verify_claims import verify_claims
         verify_claims()
 
+    # Note: output_file parameter accepted but not yet implemented
+    # verify_claims() and run_bulletproof_benchmark() don't support output files yet
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run attnroute benchmarks")
@@ -51,4 +54,4 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, help="Output file for results")
 
     args = parser.parse_args()
-    main(scenario=args.scenario)
+    main(scenario=args.scenario, output_file=args.output)

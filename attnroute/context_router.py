@@ -138,7 +138,7 @@ def get_repo_mapper(project_root: str = None):
         return _repo_mapper
 
     try:
-        _repo_mapper = RepoMapper(project_root, max_files=200)
+        _repo_mapper = RepoMapper(project_root, max_files=REPO_MAP_MAX_FILES)
         _repo_mapper.index(verbose=False)
         _repo_mapper_project = project_root
         return _repo_mapper
@@ -268,6 +268,35 @@ MAX_TOTAL_CHARS = 20000     # Reduced from 25000 - tighter context
 MIN_SEMANTIC_SCORE = 0.15   # Minimum semantic relevance to consider
 MIN_KEYWORD_MATCHES = 1     # Minimum keyword matches to activate
 SELECTION_CONFIDENCE = 0.6  # Files below this confidence are demoted
+
+# Keyword matching thresholds
+SHORT_KEYWORD_LENGTH = 4    # Keywords <= this length require word boundaries to avoid false positives
+SEMANTIC_SEARCH_TOP_K = 6   # Number of semantic search results to retrieve (reduced for selectivity)
+
+# Score adjustment factors
+PINNED_FILE_FLOOR_BOOST = 0.1      # Extra boost above WARM_THRESHOLD for pinned files
+DEMOTED_FILE_PENALTY = 0.5         # Multiplier for demoted files (0.5 = 50% reduction)
+PREDICTIVE_PREWARM_TOP_K = 3       # Number of predicted files to pre-warm
+PREDICTIVE_PREWARM_MAX_BOOST = 0.2 # Maximum boost from prediction
+PREDICTIVE_PREWARM_CONFIDENCE_SCALE = 0.3  # Scale prediction probability by this
+PREDICTIVE_PREWARM_MARGIN = 0.05   # Stay this far below WARM_THRESHOLD to avoid false activation
+
+# Content compression
+WARM_COMPRESSION_MAX_CHARS = 2000  # Maximum characters for warm TOC compression
+
+# Repo map integration
+REPO_MAP_MAX_FILES = 200           # Maximum files to index in repo mapper
+REPO_MAP_TOKEN_BUDGET = 500        # Token budget for symbol-level context
+
+# Notification handling
+NOTIFICATION_SHORT_PROMPT_THRESHOLD = 200  # Prompts shorter than this after notification strip get clamped
+NOTIFICATION_MAX_HOT_FILES = 1     # Limit hot files for notification-mixed prompts
+NOTIFICATION_MAX_WARM_FILES = 2    # Limit warm files for notification-mixed prompts
+NOTIFICATION_MAX_CHARS = 5000      # Limit total chars for notification-mixed prompts
+
+# Log file rotation
+LOG_MAX_SIZE_BYTES = 50_000        # Rotate log when it exceeds this size
+LOG_KEEP_SIZE_BYTES = 25_000       # Keep this many bytes after rotation
 
 # Pinned files (always at least WARM) — loaded from keywords.json "pinned" field
 # Empty by default; config-driven only.
@@ -445,7 +474,7 @@ def _build_compiled_keywords(keywords: Dict[str, List[str]]) -> Dict[str, re.Pat
         patterns = []
         for kw in kw_list:
             escaped = re.escape(kw)
-            if len(kw) <= 4:
+            if len(kw) <= SHORT_KEYWORD_LENGTH:
                 patterns.append(r'\b' + escaped + r'\b')
             else:
                 patterns.append(escaped)
@@ -515,7 +544,7 @@ def get_decay_rate(file_path: str) -> float:
 
 def keyword_matches(keyword: str, text: str) -> bool:
     """Match keyword with word boundaries for short words to prevent false positives."""
-    if len(keyword) <= 4:
+    if len(keyword) <= SHORT_KEYWORD_LENGTH:
         return bool(re.search(r'\b' + re.escape(keyword) + r'\b', text))
     return keyword in text
 
@@ -570,7 +599,7 @@ def update_attention(state: dict, prompt: str) -> Tuple[dict, Set[str]]:
     # Use semantic search with minimum score threshold for smarter selection
     if SEARCH_AVAILABLE and _search_index:
         try:
-            results = _search_index.query(prompt, top_k=6)  # Reduced from 8 for selectivity
+            results = _search_index.query(prompt, top_k=SEMANTIC_SEARCH_TOP_K)
             for path, relevance in results:
                 # Only activate if above minimum semantic score
                 if path in state["scores"] and relevance >= MIN_SEMANTIC_SCORE:
@@ -610,7 +639,7 @@ def update_attention(state: dict, prompt: str) -> Tuple[dict, Set[str]]:
     # Phase 4: Pinned file floor
     for pinned in PINNED_FILES:
         if pinned in state["scores"]:
-            state["scores"][pinned] = max(state["scores"][pinned], WARM_THRESHOLD + 0.1)
+            state["scores"][pinned] = max(state["scores"][pinned], WARM_THRESHOLD + PINNED_FILE_FLOOR_BOOST)
 
     # Phase 5: Apply demoted file penalty from telemetry overrides
     if TELEMETRY_LIB_AVAILABLE:
@@ -619,7 +648,7 @@ def update_attention(state: dict, prompt: str) -> Tuple[dict, Set[str]]:
             demoted = proj_overrides.get("demoted_files", [])
             for path in demoted:
                 if path in state["scores"] and path not in directly_activated:
-                    state["scores"][path] *= 0.5
+                    state["scores"][path] *= DEMOTED_FILE_PENALTY
         except Exception:
             pass
 
@@ -627,14 +656,14 @@ def update_attention(state: dict, prompt: str) -> Tuple[dict, Set[str]]:
     if PREDICTOR_AVAILABLE and _predictor:
         try:
             active_files = [p for p, s in state["scores"].items() if s >= WARM_THRESHOLD]
-            predictions = _predictor.predict(active_files, top_k=3)
+            predictions = _predictor.predict(active_files, top_k=PREDICTIVE_PREWARM_TOP_K)
             for path, prob in predictions:
                 if path in state["scores"]:
                     current = state["scores"][path]
                     if current < WARM_THRESHOLD:  # Only pre-warm COLD files
-                        # Boost by up to 0.2, scaled by prediction confidence
-                        boost = min(0.2, prob * 0.3)
-                        state["scores"][path] = min(WARM_THRESHOLD - 0.05, current + boost)
+                        # Boost by prediction confidence, scaled and capped
+                        boost = min(PREDICTIVE_PREWARM_MAX_BOOST, prob * PREDICTIVE_PREWARM_CONFIDENCE_SCALE)
+                        state["scores"][path] = min(WARM_THRESHOLD - PREDICTIVE_PREWARM_MARGIN, current + boost)
         except Exception:
             pass
 
@@ -656,7 +685,7 @@ def update_attention(state: dict, prompt: str) -> Tuple[dict, Set[str]]:
 # CONTENT EXTRACTION
 # ============================================================================
 
-def compress_warm(content: str, max_chars: int = 2000) -> str:
+def compress_warm(content: str, max_chars: int = WARM_COMPRESSION_MAX_CHARS) -> str:
     """
     Compress markdown content to TOC-style summary for WARM tier.
 
@@ -862,11 +891,11 @@ def build_context_output(state: dict, docs_root: Path) -> Tuple[str, dict]:
     # Generate repo map for additional hot files (massive token savings)
     if mapper and hot_files_for_repomap:
         try:
-            # Budget: ~500 tokens for repo map section
+            # Budget for repo map section
             repo_map_content = mapper.get_context_for_files(
                 hot_files_for_repomap,
                 include_related=True,
-                token_budget=500
+                token_budget=REPO_MAP_TOKEN_BUDGET
             )
             if repo_map_content:
                 repo_map_block = f"─── [REPO MAP] Symbol-level context ───\n{repo_map_content}"
@@ -1157,10 +1186,10 @@ def main():
 
     # === FIX: Clamp injection for notification-mixed prompts ===
     # Short residual text after notification strip = likely system text, not a real query
-    if was_notification and len(prompt) < 200:
-        MAX_HOT_FILES = min(MAX_HOT_FILES, 1)
-        MAX_WARM_FILES = min(MAX_WARM_FILES, 2)
-        MAX_TOTAL_CHARS = min(MAX_TOTAL_CHARS, 5000)
+    if was_notification and len(prompt) < NOTIFICATION_SHORT_PROMPT_THRESHOLD:
+        MAX_HOT_FILES = min(MAX_HOT_FILES, NOTIFICATION_MAX_HOT_FILES)
+        MAX_WARM_FILES = min(MAX_WARM_FILES, NOTIFICATION_MAX_WARM_FILES)
+        MAX_TOTAL_CHARS = min(MAX_TOTAL_CHARS, NOTIFICATION_MAX_CHARS)
 
     # Determine docs root with proper priority order
     # Priority 1: Explicit CONTEXT_DOCS_ROOT environment variable
@@ -1189,10 +1218,10 @@ def main():
     # Compact debug log (one-liner per turn, with size rotation)
     log_file = Path.home() / ".claude" / "context_injection.log"
     try:
-        # Rotate: keep last 50KB
-        if log_file.exists() and log_file.stat().st_size > 50_000:
+        # Rotate log when it exceeds max size
+        if log_file.exists() and log_file.stat().st_size > LOG_MAX_SIZE_BYTES:
             content = log_file.read_text(encoding='utf-8', errors='replace')
-            log_file.write_text(content[-25_000:], encoding='utf-8')
+            log_file.write_text(content[-LOG_KEEP_SIZE_BYTES:], encoding='utf-8')
 
         with open(log_file, "a", encoding='utf-8') as f:
             f.write(f"[{datetime.now().isoformat()[:19]}] T{state['turn_count']} "

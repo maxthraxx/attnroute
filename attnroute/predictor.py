@@ -16,12 +16,14 @@ Target: 35%+ F1
 import json
 import re
 import sys
+import pickle
 from pathlib import Path
 from collections import defaultdict, Counter
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Set, Tuple, Optional
 from dataclasses import dataclass, field
 
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
+MODEL_CACHE_FILE = Path.home() / ".claude" / "telemetry" / "predictor_model.pkl"
 
 
 @dataclass
@@ -455,8 +457,83 @@ def benchmark_predictor_v5(model: PredictorModelV5, max_turns: int = 1500):
     return f1
 
 
+def save_model(model: PredictorModelV5, path: Path = MODEL_CACHE_FILE):
+    """Save trained model to disk."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(path, 'wb') as f:
+            pickle.dump(model, f)
+    except Exception as e:
+        print(f"Failed to save predictor model: {e}", file=sys.stderr)
+
+
+def load_model(path: Path = MODEL_CACHE_FILE) -> Optional[PredictorModelV5]:
+    """Load trained model from disk."""
+    if not path.exists():
+        return None
+    try:
+        with open(path, 'rb') as f:
+            return pickle.load(f)
+    except Exception as e:
+        print(f"Failed to load predictor model: {e}", file=sys.stderr)
+        return None
+
+
+class FilePredictor:
+    """
+    Production wrapper for the predictor model.
+
+    Lazily loads the trained model on first use and caches it in memory.
+    """
+    def __init__(self):
+        self._model: Optional[PredictorModelV5] = None
+
+    def _ensure_model(self):
+        """Lazy load model on first use."""
+        if self._model is not None:
+            return
+
+        # Try to load cached model
+        self._model = load_model()
+
+        # If no model exists, train one and cache it
+        if self._model is None:
+            print("[predictor] No cached model found, training new model...", file=sys.stderr)
+            self._model = train_model_v5(max_sessions=200)
+            save_model(self._model)
+            print("[predictor] Model trained and cached", file=sys.stderr)
+
+    def predict(self, recent_files: List[str], top_k: int = 3) -> List[Tuple[str, float]]:
+        """
+        Predict which files are likely to be needed next.
+
+        Args:
+            recent_files: List of recently accessed file paths
+            top_k: Number of predictions to return
+
+        Returns:
+            List of (file_path, probability) tuples
+        """
+        self._ensure_model()
+        if self._model is None:
+            return []
+
+        # Use empty prompt since we're doing sequence-based prediction
+        predictions = predict_files_v5("", self._model, recent_files)
+        return predictions[:top_k]
+
+    def retrain(self, max_sessions: int = 200):
+        """Retrain the model from scratch and save it."""
+        print("[predictor] Retraining model...", file=sys.stderr)
+        self._model = train_model_v5(max_sessions=max_sessions)
+        save_model(self._model)
+        print("[predictor] Model retrained and cached", file=sys.stderr)
+
+
 def main():
     model = train_model_v5(max_sessions=200)
+    save_model(model)
+    print("\nModel saved to:", MODEL_CACHE_FILE)
     benchmark_predictor_v5(model, max_turns=1500)
 
 

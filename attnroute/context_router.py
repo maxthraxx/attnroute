@@ -1,0 +1,1222 @@
+#!/usr/bin/env python3
+"""
+attnroute — Attentional Context Router
+=======================================
+Working-memory-inspired context injection for Claude Code.
+
+Tiers:
+  HOT  (>0.8)   Full file injection — active development focus
+  WARM (0.25-0.8) Compressed TOC — background awareness
+  COLD (<0.25)   Evicted from context window
+
+Features:
+  - Decay: Unmentioned files fade at configurable rates
+  - Co-activation: Related files boost each other via keywords.json graph
+  - Pinned files: Always at least WARM (config-driven)
+  - Cache stability: HOT files sorted by streak length for API prompt cache hits
+  - Self-tuning: Telemetry-driven parameter optimization
+  - Domain-agnostic: All keywords loaded from keywords.json, zero hardcoded domains
+
+Hook: UserPromptSubmit
+Input: JSON from stdin {"prompt": "..."}
+Output: Tiered context to stdout
+"""
+
+import sys
+import io
+import json
+import os
+import copy
+from pathlib import Path
+
+# Fix Windows encoding (cp1252 can't handle Unicode box-drawing/emoji chars)
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+from typing import Dict, List, Set, Tuple, Optional
+from datetime import datetime
+import re
+
+# Try to import sibling modules (works both as package and standalone)
+try:
+    from attnroute.telemetry_lib import rotate_jsonl, get_session_id, load_project_overrides, estimate_tokens_from_chars
+    TELEMETRY_LIB_AVAILABLE = True
+except ImportError:
+    try:
+        from telemetry_lib import rotate_jsonl, get_session_id, load_project_overrides, estimate_tokens_from_chars
+        TELEMETRY_LIB_AVAILABLE = True
+    except ImportError:
+        TELEMETRY_LIB_AVAILABLE = False
+
+try:
+    from attnroute.learner import Learner, auto_extract_keywords
+    _learner = Learner()
+    LEARNER_AVAILABLE = True
+except ImportError:
+    try:
+        from learner import Learner, auto_extract_keywords
+        _learner = Learner()
+        LEARNER_AVAILABLE = True
+    except ImportError:
+        _learner = None
+        LEARNER_AVAILABLE = False
+
+# Try to import search index (optional semantic search)
+try:
+    from attnroute.indexer import SearchIndex, BM25_AVAILABLE
+    _search_index = SearchIndex()
+    SEARCH_AVAILABLE = BM25_AVAILABLE  # Only truly available if BM25 is installed
+except ImportError:
+    try:
+        from indexer import SearchIndex, BM25_AVAILABLE
+        _search_index = SearchIndex()
+        SEARCH_AVAILABLE = BM25_AVAILABLE
+    except ImportError:
+        _search_index = None
+        SEARCH_AVAILABLE = False
+        BM25_AVAILABLE = False
+
+def ensure_search_index_built():
+    """Lazily build or update the search index if needed."""
+    global _search_index
+    if not SEARCH_AVAILABLE or _search_index is None:
+        return
+
+    try:
+        status = _search_index.status()
+        if status.get("indexed_documents", 0) == 0:
+            # Index is empty - build it
+            docs_root = resolve_docs_root()
+            _search_index.build(docs_root)
+            print(f"[attnroute] Built search index with {_search_index.status()['indexed_documents']} docs", file=sys.stderr)
+    except Exception as e:
+        print(f"[attnroute] Search index build failed: {e}", file=sys.stderr)
+
+# Try to import file predictor (optional prefetching)
+try:
+    from attnroute.predictor import FilePredictor
+    _predictor = FilePredictor()
+    PREDICTOR_AVAILABLE = True
+except ImportError:
+    try:
+        from predictor import FilePredictor
+        _predictor = FilePredictor()
+        PREDICTOR_AVAILABLE = True
+    except ImportError:
+        _predictor = None
+        PREDICTOR_AVAILABLE = False
+
+# Try to import repo mapper for symbol-level context (Aider-style)
+try:
+    from attnroute.repo_map import RepoMapper
+    REPO_MAP_AVAILABLE = True
+except ImportError:
+    try:
+        from repo_map import RepoMapper
+        REPO_MAP_AVAILABLE = True
+    except ImportError:
+        RepoMapper = None
+        REPO_MAP_AVAILABLE = False
+
+# Global repo mapper (lazily initialized)
+_repo_mapper = None
+_repo_mapper_project = None
+
+def get_repo_mapper(project_root: str = None):
+    """Get or create repo mapper for current project."""
+    global _repo_mapper, _repo_mapper_project
+    if not REPO_MAP_AVAILABLE:
+        return None
+
+    # Detect project root from CWD if not specified
+    if project_root is None:
+        project_root = str(Path.cwd())
+
+    # Reuse if same project
+    if _repo_mapper and _repo_mapper_project == project_root:
+        return _repo_mapper
+
+    try:
+        _repo_mapper = RepoMapper(project_root, max_files=200)
+        _repo_mapper.index(verbose=False)
+        _repo_mapper_project = project_root
+        return _repo_mapper
+    except Exception as e:
+        print(f"[attnroute] Repo map init failed: {e}", file=sys.stderr)
+        return None
+
+# Try to import networkx for graph-based co-activation
+try:
+    import networkx as nx
+    NETWORKX_AVAILABLE = True
+except ImportError:
+    nx = None
+    NETWORKX_AVAILABLE = False
+
+# Co-activation graph (built from CO_ACTIVATION dict using networkx)
+_coactivation_graph = None
+
+# ============================================================================
+# DOCS ROOT RESOLUTION
+# ============================================================================
+
+def resolve_docs_root() -> Path:
+    """
+    Resolve documentation root with correct priority order.
+
+    Priority:
+    1. CONTEXT_DOCS_ROOT environment variable (explicit override)
+    2. Project-local .claude/ directory (if exists with .md files)
+    3. Global ~/.claude/ directory (fallback)
+
+    Returns: Path to docs root
+    Raises: FileNotFoundError if no valid docs directory found
+    """
+    # Priority 1: Explicit environment variable
+    if env_root := os.getenv('CONTEXT_DOCS_ROOT'):
+        env_path = Path(env_root).expanduser().resolve()
+        if env_path.is_dir():
+            print(f"[attnroute] Using CONTEXT_DOCS_ROOT: {env_path}", file=sys.stderr)
+            return env_path
+        else:
+            print(f"[attnroute] WARN:CONTEXT_DOCS_ROOT set but not found: {env_path}", file=sys.stderr)
+
+    # Priority 2: Project-local .claude/ (more explicit check)
+    project_claude = Path.cwd() / ".claude"
+    if project_claude.is_dir():
+        # Check if it has any .md files (not just exists)
+        md_files = list(project_claude.glob("**/*.md"))
+        if md_files:
+            print(f"[attnroute] Using project-local .claude: {project_claude}", file=sys.stderr)
+            print(f"  Found {len(md_files)} .md files", file=sys.stderr)
+            return project_claude
+        else:
+            print(f"[attnroute] WARN:Project .claude/ exists but has no .md files: {project_claude}", file=sys.stderr)
+
+    # Priority 3: Global ~/.claude/ (last resort)
+    global_claude = Path.home() / ".claude"
+    if global_claude.is_dir():
+        md_files = list(global_claude.glob("**/*.md"))
+        if md_files:
+            print(f"[attnroute] Using global ~/.claude: {global_claude}", file=sys.stderr)
+            print(f"  Found {len(md_files)} .md files", file=sys.stderr)
+            return global_claude
+        else:
+            print(f"[attnroute] WARN:Global ~/.claude/ exists but has no .md files", file=sys.stderr)
+
+    # Priority 4: Fail with helpful error
+    raise FileNotFoundError(
+        "\n"
+        "─────────────────────────────────────────────────────────\n"
+        "  No .claude/ directory with documentation found.\n"
+        "\n"
+        "  Create .claude/ in your project root and add .md files:\n"
+        "    mkdir -p .claude/\n"
+        "    echo '# My Project' > .claude/README.md\n"
+        "\n"
+        "  Or set explicit path:\n"
+        "    export CONTEXT_DOCS_ROOT=/path/to/docs\n"
+        "\n"
+        "  Priority order:\n"
+        "    1. CONTEXT_DOCS_ROOT environment variable\n"
+        "    2. Project-local .claude/ (current directory)\n"
+        "    3. Global ~/.claude/ (home directory)\n"
+        "─────────────────────────────────────────────────────────\n"
+    )
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+# State file location
+PROJECT_STATE = Path(".claude/attn_state.json")
+GLOBAL_STATE = Path.home() / ".claude" / "attn_state.json"
+HISTORY_FILE = Path.home() / ".claude" / "attention_history.jsonl"
+
+# History retention
+MAX_HISTORY_DAYS = 30  # Archive entries older than 30 days
+
+# Decay rates per category (how fast files fade when not mentioned)
+# Higher = slower decay (more persistent)
+DECAY_RATES = {
+    "systems/": 0.85,       # Hardware is stable, decay slow
+    "modules/": 0.70,       # Code changes more frequently
+    "integrations/": 0.80,  # APIs semi-stable
+    "docs/": 0.75,          # Documentation medium decay
+    "default": 0.70
+}
+
+# Attention thresholds
+HOT_THRESHOLD = 0.8         # Full file injection
+WARM_THRESHOLD = 0.25       # Header-only injection
+# Below WARM = COLD (evicted)
+
+# Boost amounts
+KEYWORD_BOOST = 1.0         # Direct mention → score = 1.0
+COACTIVATION_BOOST = 0.35   # Related file boost
+TRANSITIVE_COACT_BOOST = 0.15  # 2-hop co-activation boost (A→B→C)
+SEMANTIC_BOOST_WEIGHT = 0.8    # Weight for semantic search results
+
+# Limits (prevent context explosion) - TIGHTENED for lower waste
+MAX_HOT_FILES = 3           # Reduced from 4 - be more selective
+MAX_WARM_FILES = 5          # Reduced from 8 - focus on truly relevant
+WARM_HEADER_LINES = 25      # Lines to extract for warm context
+MAX_TOTAL_CHARS = 20000     # Reduced from 25000 - tighter context
+
+# Confidence thresholds for smarter selection
+MIN_SEMANTIC_SCORE = 0.15   # Minimum semantic relevance to consider
+MIN_KEYWORD_MATCHES = 1     # Minimum keyword matches to activate
+SELECTION_CONFIDENCE = 0.6  # Files below this confidence are demoted
+
+# Pinned files (always at least WARM) — loaded from keywords.json "pinned" field
+# Empty by default; config-driven only.
+PINNED_FILES = []
+
+# ============================================================================
+# CONFIG LOADING
+# Load keywords and co-activation from external config if available
+# ============================================================================
+
+def load_keyword_config() -> Tuple[Dict[str, List[str]], Dict[str, List[str]], List[str]]:
+    """
+    Load keywords, co-activation graph, and pinned files from keywords.json.
+    Falls back to hardcoded defaults if config doesn't exist or fails to parse.
+
+    Returns: (keywords_dict, co_activation_dict, pinned_list)
+    """
+    # Try project-local config first, then global
+    config_paths = [
+        Path(".claude/keywords.json"),
+        Path.home() / ".claude" / "keywords.json"
+    ]
+
+    for config_path in config_paths:
+        if config_path.exists():
+            try:
+                config = json.loads(config_path.read_text())
+                keywords = config.get("keywords", {})
+                co_activation = config.get("co_activation", {})
+                pinned = config.get("pinned", [])
+
+                # Validate structure
+                if keywords and isinstance(keywords, dict):
+                    print(f"[attnroute] Loaded keywords from {config_path}", file=sys.stderr)
+                    return keywords, co_activation, pinned
+            except (json.JSONDecodeError, Exception) as e:
+                print(f"[attnroute] WARN:Failed to load {config_path}: {e}", file=sys.stderr)
+                continue
+
+    # Fallback: auto-extract keywords from .md file content (zero-config mode)
+    if LEARNER_AVAILABLE:
+        try:
+            docs_root = Path(".claude") if Path(".claude").is_dir() else Path.home() / ".claude"
+            auto_kw = auto_extract_keywords(docs_root)
+            if auto_kw:
+                print(f"[attnroute] Auto-extracted keywords from {len(auto_kw)} files (no keywords.json)", file=sys.stderr)
+                return auto_kw, {}, []
+        except Exception:
+            pass
+
+    print("[attnroute] WARN: No keywords.json found — attnroute has no routing rules.", file=sys.stderr)
+    print("  Run 'attnroute-setup' to generate a keywords.json template.", file=sys.stderr)
+    return _DEFAULT_KEYWORDS, _DEFAULT_CO_ACTIVATION, []
+
+# ============================================================================
+# KEYWORD MAPPINGS
+# What words/phrases activate which files
+# ============================================================================
+
+# Domain-agnostic defaults — zero hardcoded domain keywords.
+# attnroute is a generic keyword→file routing engine.
+# All domain-specific keywords belong in keywords.json config files.
+# These structural defaults only match common doc organization patterns.
+_DEFAULT_KEYWORDS: Dict[str, List[str]] = {}
+
+# ============================================================================
+# CO-ACTIVATION GRAPH
+# When one file activates, these related files get a boost
+# ============================================================================
+
+# Domain-agnostic: empty by default. All co-activation belongs in keywords.json.
+_DEFAULT_CO_ACTIVATION: Dict[str, List[str]] = {}
+
+# Load actual configuration (from keywords.json or fallback to defaults)
+KEYWORDS, CO_ACTIVATION, _LOADED_PINNED = load_keyword_config()
+
+# Override hardcoded PINNED_FILES with config-loaded ones if available
+if _LOADED_PINNED:
+    PINNED_FILES = _LOADED_PINNED
+
+
+def build_bidirectional_coactivation(co_act: dict) -> dict:
+    """Ensure A->B implies B->A (symmetric co-activation)."""
+    bidirectional = {}
+    for source, targets in co_act.items():
+        if source not in bidirectional:
+            bidirectional[source] = set()
+        for t in targets:
+            bidirectional[source].add(t)
+            if t not in bidirectional:
+                bidirectional[t] = set()
+            bidirectional[t].add(source)
+    return {k: list(v) for k, v in bidirectional.items()}
+
+
+CO_ACTIVATION = build_bidirectional_coactivation(CO_ACTIVATION)
+
+# Merge learned co-activation from the intelligence engine
+if LEARNER_AVAILABLE:
+    _learned_coact = _learner.get_learned_coactivation()
+    for source, targets in _learned_coact.items():
+        if source not in CO_ACTIVATION:
+            CO_ACTIVATION[source] = []
+        for t in targets:
+            if t not in CO_ACTIVATION[source]:
+                CO_ACTIVATION[source].append(t)
+
+# Build networkx graph for transitive co-activation (2-hop relationships)
+def build_coactivation_graph(co_act: dict):
+    """Build networkx graph for transitive co-activation queries."""
+    global _coactivation_graph
+    if not NETWORKX_AVAILABLE:
+        return None
+
+    G = nx.Graph()
+    for source, targets in co_act.items():
+        G.add_node(source)
+        for target in targets:
+            G.add_edge(source, target, weight=1.0)
+
+    _coactivation_graph = G
+    return G
+
+def get_transitive_coactivation(activated_files: Set[str], max_hops: int = 2) -> Dict[str, float]:
+    """
+    Get transitively co-activated files up to max_hops away.
+
+    Returns: dict of {file_path: boost_score} where boost decays with distance
+    """
+    if not NETWORKX_AVAILABLE or _coactivation_graph is None:
+        return {}
+
+    transitive = {}
+    for source in activated_files:
+        if source not in _coactivation_graph:
+            continue
+
+        # BFS to find files within max_hops
+        try:
+            lengths = nx.single_source_shortest_path_length(_coactivation_graph, source, cutoff=max_hops)
+            for target, distance in lengths.items():
+                if target == source or target in activated_files:
+                    continue
+                # Decay boost by distance: hop 1 = COACTIVATION_BOOST, hop 2 = TRANSITIVE_COACT_BOOST
+                if distance == 1:
+                    boost = COACTIVATION_BOOST
+                else:
+                    boost = TRANSITIVE_COACT_BOOST / distance
+                # Take max if file reachable from multiple sources
+                transitive[target] = max(transitive.get(target, 0), boost)
+        except nx.NetworkXError:
+            continue
+
+    return transitive
+
+# Initialize the graph
+_coactivation_graph = build_coactivation_graph(CO_ACTIVATION) if NETWORKX_AVAILABLE else None
+
+# Keyword weights placeholder (learner.boost_scores() handles learned associations instead)
+_KEYWORD_WEIGHTS: Dict[str, float] = {}
+
+# ============================================================================
+# COMPILED KEYWORD REGEX (performance optimization)
+# Pre-compile one regex per file path. Replaces ~200 regex ops/turn with ~24.
+# ============================================================================
+
+def _build_compiled_keywords(keywords: Dict[str, List[str]]) -> Dict[str, re.Pattern]:
+    """Build compiled regex for each file's keywords."""
+    compiled = {}
+    for path, kw_list in keywords.items():
+        if not kw_list:
+            continue
+        # Escape keywords and join with | for alternation
+        # Add word boundaries for short keywords (<=4 chars)
+        patterns = []
+        for kw in kw_list:
+            escaped = re.escape(kw)
+            if len(kw) <= 4:
+                patterns.append(r'\b' + escaped + r'\b')
+            else:
+                patterns.append(escaped)
+        try:
+            compiled[path] = re.compile('|'.join(patterns), re.IGNORECASE)
+        except re.error:
+            # Fallback: skip this file's regex if pattern is invalid
+            pass
+    return compiled
+
+_COMPILED_KEYWORDS: Dict[str, re.Pattern] = _build_compiled_keywords(KEYWORDS)
+
+# ============================================================================
+# STATE MANAGEMENT
+# ============================================================================
+
+def get_state_file() -> Path:
+    """Get appropriate state file (project-local preferred)."""
+    if PROJECT_STATE.parent.exists():
+        return PROJECT_STATE
+    GLOBAL_STATE.parent.mkdir(parents=True, exist_ok=True)
+    return GLOBAL_STATE
+
+
+def load_state(state_file: Path) -> dict:
+    """Load attention state from file."""
+    if state_file.exists():
+        try:
+            return json.loads(state_file.read_text())
+        except json.JSONDecodeError:
+            pass
+    
+    # Initialize fresh state
+    return {
+        "scores": {path: 0.0 for path in KEYWORDS},
+        "consecutive_turns": {path: 0 for path in KEYWORDS},  # Streak tracking for cache stability
+        "turn_count": 0,
+        "last_update": datetime.now().isoformat(),
+    }
+
+
+def save_state(state_file: Path, state: dict) -> None:
+    """Save attention state to file."""
+    state["last_update"] = datetime.now().isoformat()
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(json.dumps(state, indent=2))
+
+
+# ============================================================================
+# ATTENTION DYNAMICS
+# ============================================================================
+
+def get_decay_rate(file_path: str) -> float:
+    """Get decay rate for a file. Prefers learned rhythm, then category, then default."""
+    # Priority 1: Learned per-file rhythm from the intelligence engine
+    if LEARNER_AVAILABLE:
+        learned = _learner.get_file_decay(file_path)
+        if learned is not None:
+            return learned
+
+    # Priority 2: Category-based decay from config
+    for prefix, rate in DECAY_RATES.items():
+        if file_path.startswith(prefix):
+            return rate
+    return DECAY_RATES["default"]
+
+
+def keyword_matches(keyword: str, text: str) -> bool:
+    """Match keyword with word boundaries for short words to prevent false positives."""
+    if len(keyword) <= 4:
+        return bool(re.search(r'\b' + re.escape(keyword) + r'\b', text))
+    return keyword in text
+
+
+def _keyword_activate(state: dict, prompt_lower: str, directly_activated: Set[str]):
+    """Keyword-based activation using compiled regex (fallback path)."""
+    for path in KEYWORDS:
+        if path in _COMPILED_KEYWORDS:
+            # Fast path: single compiled regex search
+            if _COMPILED_KEYWORDS[path].search(prompt_lower):
+                state["scores"][path] = KEYWORD_BOOST
+                directly_activated.add(path)
+        else:
+            # Fallback: individual keyword matching (rarely used)
+            keywords = KEYWORDS[path]
+            if any(keyword_matches(kw, prompt_lower) for kw in keywords):
+                state["scores"][path] = KEYWORD_BOOST
+                directly_activated.add(path)
+
+
+def update_attention(state: dict, prompt: str) -> Tuple[dict, Set[str]]:
+    """
+    Update attention scores based on prompt content.
+    Returns updated state and set of directly activated files.
+
+    Pipeline:
+      1. Decay all scores
+      2. Semantic search (if available) OR keyword activation (fallback)
+      3. Learned association boost
+      4. Co-activation boost (direct + transitive via graph)
+      5. Pinned file floor
+      6. Demoted file penalty
+      7. Update streak counters
+    """
+    # Ensure search index is built (lazy initialization)
+    if state.get("turn_count", 0) == 0:
+        ensure_search_index_built()
+
+    prompt_lower = prompt.lower()
+    directly_activated: Set[str] = set()
+
+    # Ensure consecutive_turns dict exists (backwards compat with old state files)
+    if "consecutive_turns" not in state:
+        state["consecutive_turns"] = {path: 0 for path in state.get("scores", {})}
+
+    # Phase 1: Decay all scores
+    for path in state["scores"]:
+        decay = get_decay_rate(path)
+        state["scores"][path] *= decay
+
+    # Phase 2: Semantic search (if available) OR keyword activation
+    # Use semantic search with minimum score threshold for smarter selection
+    if SEARCH_AVAILABLE and _search_index:
+        try:
+            results = _search_index.query(prompt, top_k=6)  # Reduced from 8 for selectivity
+            for path, relevance in results:
+                # Only activate if above minimum semantic score
+                if path in state["scores"] and relevance >= MIN_SEMANTIC_SCORE:
+                    boost = min(1.0, relevance * SEMANTIC_BOOST_WEIGHT)
+                    if boost > state["scores"][path]:
+                        state["scores"][path] = boost
+                        directly_activated.add(path)
+        except Exception:
+            # Fallback to keyword activation if search fails
+            _keyword_activate(state, prompt_lower, directly_activated)
+    else:
+        # No search available - use keyword activation
+        _keyword_activate(state, prompt_lower, directly_activated)
+
+    # Phase 2.5: Learned association boost (from intelligence engine)
+    if LEARNER_AVAILABLE:
+        state["scores"] = _learner.boost_scores(prompt, state["scores"])
+
+    # Phase 3: Co-activation boost (direct neighbors)
+    for activated_path in directly_activated:
+        if activated_path in CO_ACTIVATION:
+            for related_path in CO_ACTIVATION[activated_path]:
+                if related_path in state["scores"]:
+                    current = state["scores"][related_path]
+                    state["scores"][related_path] = min(1.0, current + COACTIVATION_BOOST)
+
+    # Phase 3.5: Transitive co-activation (2-hop neighbors via graph)
+    if NETWORKX_AVAILABLE and _coactivation_graph is not None:
+        transitive_boosts = get_transitive_coactivation(directly_activated, max_hops=2)
+        for path, boost in transitive_boosts.items():
+            if path in state["scores"]:
+                current = state["scores"][path]
+                # Only apply if file isn't already activated
+                if current < WARM_THRESHOLD:
+                    state["scores"][path] = min(1.0, current + boost)
+
+    # Phase 4: Pinned file floor
+    for pinned in PINNED_FILES:
+        if pinned in state["scores"]:
+            state["scores"][pinned] = max(state["scores"][pinned], WARM_THRESHOLD + 0.1)
+
+    # Phase 5: Apply demoted file penalty from telemetry overrides
+    if TELEMETRY_LIB_AVAILABLE:
+        try:
+            proj_overrides = load_project_overrides()
+            demoted = proj_overrides.get("demoted_files", [])
+            for path in demoted:
+                if path in state["scores"] and path not in directly_activated:
+                    state["scores"][path] *= 0.5
+        except Exception:
+            pass
+
+    # Phase 5.5: Predictive pre-warming (boost predicted files if currently COLD)
+    if PREDICTOR_AVAILABLE and _predictor:
+        try:
+            active_files = [p for p, s in state["scores"].items() if s >= WARM_THRESHOLD]
+            predictions = _predictor.predict(active_files, top_k=3)
+            for path, prob in predictions:
+                if path in state["scores"]:
+                    current = state["scores"][path]
+                    if current < WARM_THRESHOLD:  # Only pre-warm COLD files
+                        # Boost by up to 0.2, scaled by prediction confidence
+                        boost = min(0.2, prob * 0.3)
+                        state["scores"][path] = min(WARM_THRESHOLD - 0.05, current + boost)
+        except Exception:
+            pass
+
+    # Phase 6: Update consecutive_turns counters for prompt cache stability
+    # Files that are HOT or WARM this turn increment their streak.
+    # Files that drop to COLD reset to 0.
+    for path, score in state["scores"].items():
+        tier = get_tier(score)
+        if tier in ("HOT", "WARM"):
+            state["consecutive_turns"][path] = state["consecutive_turns"].get(path, 0) + 1
+        else:
+            state["consecutive_turns"][path] = 0
+
+    state["turn_count"] = state.get("turn_count", 0) + 1
+    return state, directly_activated
+
+
+# ============================================================================
+# CONTENT EXTRACTION
+# ============================================================================
+
+def compress_warm(content: str, max_chars: int = 2000) -> str:
+    """
+    Compress markdown content to TOC-style summary for WARM tier.
+
+    Extracts:
+    - All heading lines (# ## ### etc.)
+    - First 2 non-empty lines after each heading (context lines)
+    - Bullet points at top level (- or * prefixed)
+
+    Target: ~50% size reduction compared to raw header extraction.
+    """
+    lines = content.split('\n')
+    result = []
+    chars = 0
+    after_heading = 0  # Counter for lines after last heading
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Always include headings
+        if stripped.startswith('#'):
+            if chars + len(line) + 1 > max_chars:
+                break
+            result.append(line)
+            chars += len(line) + 1
+            after_heading = 0
+            continue
+
+        # Include first 2 non-empty lines after a heading
+        if after_heading < 2 and stripped:
+            if chars + len(line) + 1 > max_chars:
+                break
+            result.append(line)
+            chars += len(line) + 1
+            after_heading += 1
+            continue
+
+        # Include top-level bullet points
+        if stripped.startswith(('-', '*')) and not stripped.startswith('---'):
+            if chars + len(line) + 1 > max_chars:
+                break
+            result.append(line)
+            chars += len(line) + 1
+            continue
+
+    compressed = '\n'.join(result)
+    if len(compressed) < len(content):
+        compressed += "\n\n... [WARM: Compressed TOC, mention to expand] ..."
+    return compressed
+
+
+def extract_warm_header(file_path: str, docs_root: Path, use_compression: bool = True) -> Optional[str]:
+    """
+    Extract structured header for warm context.
+
+    If use_compression=True (default), uses compress_warm() for TOC-style extraction.
+    Otherwise falls back to first WARM_HEADER_LINES lines.
+    Returns None if file missing.
+    """
+    full_path = docs_root / file_path
+    if not full_path.exists():
+        return None
+
+    try:
+        content = full_path.read_text()
+
+        if use_compression:
+            return compress_warm(content)
+
+        # Fallback: raw line-based extraction
+        lines = content.split('\n')[:WARM_HEADER_LINES]
+        header = '\n'.join(lines)
+
+        # Add truncation marker if we cut content
+        if len(content.split('\n')) > WARM_HEADER_LINES:
+            header += "\n\n... [WARM: Content truncated, mention to expand] ..."
+
+        return header
+    except Exception as e:
+        return f"[Error reading {file_path}: {e}]"
+
+
+def get_full_content(file_path: str, docs_root: Path) -> Optional[str]:
+    """Get full file content for hot context."""
+    full_path = docs_root / file_path
+    if not full_path.exists():
+        return None
+    
+    try:
+        return full_path.read_text()
+    except Exception as e:
+        return f"[Error reading {file_path}: {e}]"
+
+
+# ============================================================================
+# TIERED INJECTION
+# ============================================================================
+
+def get_tier(score: float) -> str:
+    """Classify attention score into tier."""
+    if score >= HOT_THRESHOLD:
+        return "HOT"
+    elif score >= WARM_THRESHOLD:
+        return "WARM"
+    return "COLD"
+
+
+def _cache_sort_key(item: Tuple[str, float], state: dict) -> Tuple[int, int, float]:
+    """
+    Sort key for prompt cache stability.
+
+    Priority (descending):
+    1. Pinned files first (always present → always cached by API)
+    2. Longest consecutive streak (most stable in context → highest cache hit)
+    3. Highest attention score (tiebreaker)
+
+    Returns tuple for descending sort (negate values since sorted() is ascending).
+    """
+    path, score = item
+    is_pinned = 1 if path in PINNED_FILES else 0
+    streak = state.get("consecutive_turns", {}).get(path, 0)
+    return (-is_pinned, -streak, -score)
+
+
+def build_context_output(state: dict, docs_root: Path) -> Tuple[str, dict]:
+    """
+    Build tiered context output respecting limits.
+
+    HOT files sorted for prompt cache stability:
+    - Pinned files first (always present → always in cache prefix)
+    - Then by consecutive_turns streak (longest streak = most stable = best cache hit)
+    - Then by score (tiebreaker)
+
+    Returns (output_string, stats_dict).
+    """
+    # Sort files by attention score (highest first) for tier assignment
+    sorted_files = sorted(
+        state["scores"].items(),
+        key=lambda x: x[1],
+        reverse=True
+    )
+    
+    # Separate files into tiers first, then sort within each tier
+    hot_candidates = []
+    warm_candidates = []
+    stats = {"hot": 0, "warm": 0, "cold": 0}
+    total_chars = 0
+
+    for file_path, score in sorted_files:
+        tier = get_tier(score)
+        if tier == "HOT":
+            hot_candidates.append((file_path, score))
+        elif tier == "WARM":
+            warm_candidates.append((file_path, score))
+        else:
+            stats["cold"] += 1
+
+    # Sort HOT files for prompt cache stability:
+    # Pinned first, then longest streak, then highest score
+    # This keeps the prefix stable across turns → better API cache hits
+    hot_candidates.sort(key=lambda item: _cache_sort_key(item, state))
+    hot_candidates = hot_candidates[:MAX_HOT_FILES]
+
+    # Sort WARM files similarly for stability
+    warm_candidates.sort(key=lambda item: _cache_sort_key(item, state))
+    warm_candidates = warm_candidates[:MAX_WARM_FILES]
+
+    hot_blocks = []
+    warm_blocks = []
+    repo_map_block = None
+
+    # Try to get repo map for symbol-level context (Aider-style efficiency)
+    mapper = get_repo_mapper() if REPO_MAP_AVAILABLE else None
+
+    # SMART INJECTION STRATEGY:
+    # 1. First HOT file: full content (highest priority)
+    # 2. Additional HOT files: repo map only (symbol-level)
+    # 3. WARM files: headers only
+    # This matches Aider's approach for 80%+ token reduction
+
+    first_hot = True
+    hot_files_for_repomap = []
+
+    for file_path, score in hot_candidates:
+        streak = state.get("consecutive_turns", {}).get(file_path, 0)
+
+        if first_hot:
+            # First HOT file gets full content
+            content = get_full_content(file_path, docs_root)
+            if content and total_chars + len(content) < MAX_TOTAL_CHARS:
+                hot_blocks.append(f"─── [HOT] {file_path} (score: {score:.2f}, streak: {streak}) ───\n{content}")
+                total_chars += len(content)
+                stats["hot"] += 1
+                first_hot = False
+            elif content:
+                # Demote to repo map if too large
+                hot_files_for_repomap.append(file_path)
+                stats["hot"] += 1
+        else:
+            # Other HOT files: use repo map instead of full content
+            hot_files_for_repomap.append(file_path)
+            stats["hot"] += 1
+
+    # Generate repo map for additional hot files (massive token savings)
+    if mapper and hot_files_for_repomap:
+        try:
+            # Budget: ~500 tokens for repo map section
+            repo_map_content = mapper.get_context_for_files(
+                hot_files_for_repomap,
+                include_related=True,
+                token_budget=500
+            )
+            if repo_map_content:
+                repo_map_block = f"─── [REPO MAP] Symbol-level context ───\n{repo_map_content}"
+                total_chars += len(repo_map_content)
+        except Exception as e:
+            print(f"[attnroute] Repo map generation failed: {e}", file=sys.stderr)
+
+    for file_path, score in warm_candidates:
+        if stats["warm"] >= MAX_WARM_FILES:
+            break
+        header = extract_warm_header(file_path, docs_root)
+        if header and total_chars + len(header) < MAX_TOTAL_CHARS:
+            warm_blocks.append(f"─── [WARM] {file_path} (score: {score:.2f}) ───\n{header}")
+            total_chars += len(header)
+            stats["warm"] += 1
+
+    # Combine output
+    output_parts = []
+
+    # Status header (joined with \n so the box stays compact)
+    turn_label = f"Turn {state['turn_count']}"
+    tier_line = f"Hot: {stats['hot']}  Warm: {stats['warm']}  Cold: {stats['cold']}"
+    chars_line = f"Chars: {total_chars:,} / {MAX_TOTAL_CHARS:,}"
+    header_w = max(len(turn_label), len(tier_line), len(chars_line)) + 4
+    header = "\n".join([
+        f"┌─ {turn_label} {'─' * (header_w - len(turn_label) - 3)}┐",
+        f"│ {tier_line:<{header_w - 2}} │",
+        f"│ {chars_line:<{header_w - 2}} │",
+        f"└{'─' * header_w}┘",
+    ])
+    output_parts.append(header)
+
+    # Hot files first (stable order for cache)
+    output_parts.extend(hot_blocks)
+
+    # Repo map for additional hot files (symbol-level context)
+    if repo_map_block:
+        output_parts.append(repo_map_block)
+
+    # Then warm files (compressed TOC)
+    output_parts.extend(warm_blocks)
+
+    return "\n\n".join(output_parts), stats
+
+
+# ============================================================================
+# ATTENTION HISTORY TRACKING
+# ============================================================================
+
+def compute_transitions(prev_state: dict, curr_state: dict) -> dict:
+    """Compute what moved between tiers."""
+    transitions = {"to_hot": [], "to_warm": [], "to_cold": []}
+
+    for path, score in curr_state["scores"].items():
+        prev_score = prev_state.get("scores", {}).get(path, 0.0)
+        prev_tier = get_tier(prev_score)
+        curr_tier = get_tier(score)
+
+        if curr_tier != prev_tier:
+            if curr_tier == "HOT":
+                transitions["to_hot"].append(path)
+            elif curr_tier == "WARM":
+                transitions["to_warm"].append(path)
+            else:
+                transitions["to_cold"].append(path)
+
+    return transitions
+
+
+def append_history(state: dict, prev_state: dict, activated: Set[str], prompt: str, stats: dict):
+    """Append structured entry to history log."""
+
+    # Extract keywords from prompt (simple: first 8 significant words)
+    stop_words = {"the", "a", "an", "is", "are", "to", "for", "and", "or", "in", "on", "it", "this", "that", "with", "of"}
+    words = [w.lower() for w in prompt.split() if len(w) > 2 and w.lower() not in stop_words][:8]
+
+    entry = {
+        "turn": state["turn_count"],
+        "timestamp": datetime.now().isoformat(),
+        "instance_id": os.environ.get("CLAUDE_INSTANCE", "default"),
+        "prompt_keywords": words,
+        "activated": sorted(list(activated)),
+        "hot": sorted([p for p, s in state["scores"].items() if get_tier(s) == "HOT"]),
+        "warm": sorted([p for p, s in state["scores"].items() if get_tier(s) == "WARM"]),
+        "cold_count": stats["cold"],
+        "transitions": compute_transitions(prev_state, state),
+        "total_chars": stats.get("total_chars", 0)
+    }
+
+    try:
+        # Ensure history file exists
+        if not HISTORY_FILE.exists():
+            HISTORY_FILE.parent.mkdir(exist_ok=True)
+            HISTORY_FILE.touch()
+
+        with open(HISTORY_FILE, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass  # Don't fail hook on history write error
+
+
+# ============================================================================
+# MAIN ENTRY POINT
+# ============================================================================
+
+def strip_notifications(prompt: str) -> tuple:
+    """
+    Strip <task-notification> and <system-reminder> XML from prompt.
+    Returns (cleaned_prompt, was_notification).
+    """
+    original_len = len(prompt)
+    cleaned = re.sub(r'<task-notification>.*?</task-notification>', '', prompt, flags=re.DOTALL)
+    cleaned = re.sub(r'<system-reminder>.*?</system-reminder>', '', cleaned, flags=re.DOTALL)
+    cleaned = cleaned.strip()
+    was_notification = len(cleaned) < original_len
+    return cleaned, was_notification
+
+
+# Cache for router overrides (avoid disk read every turn)
+_OVERRIDES_CACHE: Dict = {"params": {}, "mtime": 0.0, "path": None}
+
+def load_telemetry_overrides():
+    """Load auto-tuned parameter overrides from telemetry system (per-project aware).
+
+    Uses mtime-based caching to avoid disk reads on every turn.
+    """
+    global MAX_HOT_FILES, MAX_WARM_FILES, MAX_TOTAL_CHARS, COACTIVATION_BOOST, DECAY_RATES
+
+    overrides_file = Path.home() / ".claude" / "telemetry" / "router_overrides.json"
+
+    # Check cache validity
+    try:
+        if overrides_file.exists():
+            current_mtime = overrides_file.stat().st_mtime
+            if (str(overrides_file) == _OVERRIDES_CACHE["path"] and
+                current_mtime == _OVERRIDES_CACHE["mtime"]):
+                params = _OVERRIDES_CACHE["params"]
+            else:
+                # Cache miss or stale - reload
+                if TELEMETRY_LIB_AVAILABLE:
+                    proj = load_project_overrides()
+                    params = proj.get("overrides", {})
+                else:
+                    data = json.loads(overrides_file.read_text())
+                    params = data.get("overrides", {})
+                # Update cache
+                _OVERRIDES_CACHE["params"] = params
+                _OVERRIDES_CACHE["mtime"] = current_mtime
+                _OVERRIDES_CACHE["path"] = str(overrides_file)
+        else:
+            return
+    except Exception:
+        return
+
+    if "MAX_HOT_FILES" in params:
+        MAX_HOT_FILES = int(params["MAX_HOT_FILES"])
+    if "MAX_WARM_FILES" in params:
+        MAX_WARM_FILES = int(params["MAX_WARM_FILES"])
+    if "MAX_TOTAL_CHARS" in params:
+        MAX_TOTAL_CHARS = int(params["MAX_TOTAL_CHARS"])
+    if "COACTIVATION_BOOST" in params:
+        COACTIVATION_BOOST = float(params["COACTIVATION_BOOST"])
+    if "DECAY_RATES.default" in params:
+        DECAY_RATES["default"] = float(params["DECAY_RATES.default"])
+    print(f"[attnroute] Loaded overrides: HOT={MAX_HOT_FILES} WARM={MAX_WARM_FILES} CHARS={MAX_TOTAL_CHARS}", file=sys.stderr)
+
+
+def measure_claude_md() -> int:
+    """Measure total CLAUDE.md injection size (global + project-local)."""
+    total = 0
+    # Global CLAUDE.md
+    global_md = Path.home() / ".claude" / "CLAUDE.md"
+    if global_md.exists():
+        try:
+            total += global_md.stat().st_size
+        except Exception:
+            pass
+    # Project-local CLAUDE.md
+    project_md = Path.cwd() / "CLAUDE.md"
+    if project_md.exists():
+        try:
+            total += project_md.stat().st_size
+        except Exception:
+            pass
+    # Also check .claude/CLAUDE.md in project
+    project_claude_md = Path.cwd() / ".claude" / "CLAUDE.md"
+    if project_claude_md.exists() and project_claude_md != project_md:
+        try:
+            total += project_claude_md.stat().st_size
+        except Exception:
+            pass
+    return total
+
+
+def measure_pool_size() -> int:
+    """Estimate pool injection size from instance_state.jsonl."""
+    pool_files = [
+        Path.cwd() / ".claude" / "pool" / "instance_state.jsonl",
+        Path.home() / ".claude" / "pool" / "instance_state.jsonl",
+    ]
+    for pool_file in pool_files:
+        if pool_file.exists():
+            try:
+                # Pool loader takes last 20 entries within 1 hour
+                lines = pool_file.read_text(encoding="utf-8", errors="replace").strip().split("\n")
+                recent = lines[-20:] if len(lines) > 20 else lines
+                return sum(len(line) for line in recent)
+            except Exception:
+                pass
+    return 0
+
+
+def record_turn_telemetry(prompt: str, was_notification: bool, stats: dict,
+                          activated: set, state: dict, injection_chars: int):
+    """Record turn data to telemetry/turns.jsonl for analysis."""
+    try:
+        telemetry_dir = Path.home() / ".claude" / "telemetry"
+        telemetry_dir.mkdir(parents=True, exist_ok=True)
+        turns_file = telemetry_dir / "turns.jsonl"
+
+        hot_files = sorted([p for p, s in state["scores"].items() if s >= HOT_THRESHOLD])
+        warm_files = sorted([p for p, s in state["scores"].items() if WARM_THRESHOLD <= s < HOT_THRESHOLD])
+
+        # Measure external context sources
+        claude_md_chars = measure_claude_md()
+        pool_chars = measure_pool_size()
+
+        # Token estimates (markdown content → ~3.0 chars/token)
+        est_fn = estimate_tokens_from_chars if TELEMETRY_LIB_AVAILABLE else lambda c, t="markdown": max(0, int(c / 3.3))
+        injection_tokens = est_fn(injection_chars, "markdown")
+        claude_md_tokens = est_fn(claude_md_chars, "markdown")
+        pool_tokens = est_fn(pool_chars, "mixed")
+        total_tokens = injection_tokens + claude_md_tokens + pool_tokens
+
+        record = {
+            "turn_id": os.urandom(6).hex(),
+            "timestamp": datetime.now().isoformat(),
+            "project": str(Path.cwd()).lower(),
+            "session_id": get_session_id() if TELEMETRY_LIB_AVAILABLE else "unknown",
+            "prompt_length": len(prompt),
+            "was_notification": was_notification,
+            "injection_chars": injection_chars,
+            "claude_md_chars": claude_md_chars,
+            "pool_chars": pool_chars,
+            "total_context_chars": injection_chars + claude_md_chars + pool_chars,
+            "injection_tokens_est": injection_tokens,
+            "claude_md_tokens_est": claude_md_tokens,
+            "pool_tokens_est": pool_tokens,
+            "total_context_tokens_est": total_tokens,
+            "hot_count": stats.get("hot", 0),
+            "warm_count": stats.get("warm", 0),
+            "files_injected": hot_files[:MAX_HOT_FILES] + warm_files[:MAX_WARM_FILES],
+            "files_used": [],  # Populated later by telemetry-record.py Stop hook
+            "waste_ratio": -1,  # Populated later
+            "tool_calls": 0,  # Populated later
+        }
+        with open(turns_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record) + "\n")
+    except Exception:
+        pass  # Never fail the hook
+
+
+def main():
+    """
+    Main entry point for Claude Code hook.
+    Reads JSON from stdin, outputs tiered context to stdout.
+    """
+    # Parse input
+    try:
+        input_data = json.loads(sys.stdin.read())
+        prompt = input_data.get("prompt", "")
+    except json.JSONDecodeError:
+        # Fallback: treat entire stdin as prompt
+        prompt = sys.stdin.read() if sys.stdin else ""
+
+    if not prompt.strip():
+        return
+
+    # === TELEMETRY: Strip notifications before keyword matching ===
+    prompt, was_notification = strip_notifications(prompt)
+    if not prompt.strip():
+        # Pure notification with no user text — skip routing entirely
+        record_turn_telemetry("", True, {"hot": 0, "warm": 0, "cold": 0}, set(), {"scores": {}, "turn_count": 0}, 0)
+        return
+
+    # === TELEMETRY: Load auto-tuned parameter overrides ===
+    load_telemetry_overrides()
+
+    # === FIX: Clamp injection for notification-mixed prompts ===
+    # Short residual text after notification strip = likely system text, not a real query
+    if was_notification and len(prompt) < 200:
+        MAX_HOT_FILES = min(MAX_HOT_FILES, 1)
+        MAX_WARM_FILES = min(MAX_WARM_FILES, 2)
+        MAX_TOTAL_CHARS = min(MAX_TOTAL_CHARS, 5000)
+
+    # Determine docs root with proper priority order
+    # Priority 1: Explicit CONTEXT_DOCS_ROOT environment variable
+    # Priority 2: Project-local .claude/ (if exists with .md files)
+    # Priority 3: Global ~/.claude/
+    docs_root = resolve_docs_root()
+
+    # Load state
+    state_file = get_state_file()
+    prev_state = load_state(state_file)  # Keep copy before mutation
+    state = copy.deepcopy(prev_state)  # Deep copy for modification
+
+    # Update attention based on prompt
+    state, activated = update_attention(state, prompt)
+
+    # Build output
+    output, stats = build_context_output(state, docs_root)
+    stats["total_chars"] = len(output)  # Add total chars to stats
+
+    # Append to history log (before save, so turn_count is correct)
+    append_history(state, prev_state, activated, prompt, stats)
+
+    # Save state for next turn
+    save_state(state_file, state)
+    
+    # Compact debug log (one-liner per turn, with size rotation)
+    log_file = Path.home() / ".claude" / "context_injection.log"
+    try:
+        # Rotate: keep last 50KB
+        if log_file.exists() and log_file.stat().st_size > 50_000:
+            content = log_file.read_text(encoding='utf-8', errors='replace')
+            log_file.write_text(content[-25_000:], encoding='utf-8')
+
+        with open(log_file, "a", encoding='utf-8') as f:
+            f.write(f"[{datetime.now().isoformat()[:19]}] T{state['turn_count']} "
+                    f"H={stats['hot']} W={stats['warm']} C={stats['cold']} "
+                    f"chars={len(output)} notif={was_notification} "
+                    f"activated={','.join(activated) or 'none'}\n")
+    except Exception:
+        pass
+
+    # Rotate attention_history.jsonl every 100 turns
+    if TELEMETRY_LIB_AVAILABLE and state.get("turn_count", 0) % 100 == 0:
+        try:
+            rotate_jsonl(HISTORY_FILE, 1000)
+        except Exception:
+            pass
+
+    # Output to Claude Code
+    if stats["hot"] > 0 or stats["warm"] > 0:
+        print(output)
+
+    # === TELEMETRY: Record turn data ===
+    record_turn_telemetry(prompt, was_notification, stats, activated, state, len(output))
+    # Note: Usage tracking (log_injection, track_turn_usage) moved to telemetry_record.py Stop hook
+
+
+if __name__ == "__main__":
+    main()

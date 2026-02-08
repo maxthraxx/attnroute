@@ -639,21 +639,21 @@ attnroute compress stats    # Memory compression stats
 ### Python API
 
 ```python
-from attnroute import ContextRouter
+from attnroute import update_attention, build_context_output, get_tier
+from attnroute import RepoMapper, Learner
 
-# Initialize
-router = ContextRouter("/path/to/project")
+# Update attention state for a prompt
+state = update_attention(prompt="Fix the auth bug", conversation_id="session-1")
 
-# Get context for a prompt
-context = router.get_context("Fix the bug in auth module")
+# Build context output (returns injected context string)
+context = build_context_output(state)
 
-# Access attention state
-hot_files = router.get_hot_files()      # score > 0.7
-warm_files = router.get_warm_files()    # score 0.3-0.7
+# Check file tier classification
+tier = get_tier(score=0.8)  # Returns "HOT", "WARM", or "COLD"
 
-# Manual file activation
-router.activate_file("src/auth.py")
-router.deactivate_file("src/old_code.py")
+# Use RepoMapper for symbol extraction
+mapper = RepoMapper("/path/to/project")
+repo_map = mapper.build_map(token_budget=2000)
 ```
 
 ### Configuration

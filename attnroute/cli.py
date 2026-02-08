@@ -123,16 +123,10 @@ def cmd_benchmark(args):
     """Run performance benchmarks."""
     try:
         from benchmarks.runner import main as benchmark_main
-        original_argv = sys.argv
-        sys.argv = ["attnroute-benchmark"]
-        if args.scenario:
-            sys.argv.extend(["--scenario", args.scenario])
-        if args.output:
-            sys.argv.extend(["--output", args.output])
-        try:
-            benchmark_main()
-        finally:
-            sys.argv = original_argv
+        benchmark_main(
+            scenario=args.scenario,
+            output_file=args.output
+        )
     except ImportError as e:
         print(f"Benchmark module not available: {e}")
         sys.exit(1)

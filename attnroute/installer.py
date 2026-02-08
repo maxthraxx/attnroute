@@ -46,7 +46,7 @@ REQUIRED_DEPS = {
     "model2vec": {"import": "model2vec", "purpose": "Semantic reranking", "fallback": "BM25 only"},
     "numpy": {"import": "numpy", "purpose": "Vector operations", "fallback": "Basic math"},
     "tree_sitter": {"import": "tree_sitter", "purpose": "Code outlines", "fallback": "Regex extraction"},
-    "tree_sitter_language_pack": {"import": "tree_sitter_language_pack", "purpose": "Multi-language parsing", "fallback": "Python only"},
+    "tree_sitter_languages": {"import": "tree_sitter_languages", "purpose": "Multi-language parsing", "fallback": "Python only"},
 }
 
 

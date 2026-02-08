@@ -18,7 +18,7 @@ Quick start:
 """
 
 __version__ = "0.5.0"
-__author__ = "Jesse"
+__author__ = "jeranaias"
 
 # Core exports
 try:

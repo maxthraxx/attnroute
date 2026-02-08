@@ -1,87 +1,141 @@
 # attnroute
 
-**Context routing for AI coding assistants**
+### Intelligent Context Routing for AI Coding Assistants
 
-attnroute reduces token usage by 98-99% through intelligent context selection. It learns which files you actually use and predicts what you'll need next.
+**Cut your token usage by 98%+** — attnroute learns which files matter and delivers only what's needed.
 
-## Performance
-
-Measured with tiktoken on real codebases, verified with multiple runs and 95% confidence intervals:
-
-| Repository | Files | Baseline Tokens | Output Tokens | Reduction | Time |
-|------------|-------|-----------------|---------------|-----------|------|
-| Go project (556 files) | 556 | 1,569,434 | 2,627 | 99.83% | 253ms |
-| Python project (36 files) | 36 | 134,449 | 2,842 | 97.89% | 139ms |
-
-### Verify These Claims
-
-Don't trust our numbers? Run the benchmark yourself:
-
-```bash
-# Using the CLI
-attnroute benchmark
-
-# Or run directly
-python benchmarks/verify_claims.py /path/to/your/repo
+```
+1,569,434 tokens  →  2,027 tokens  (99.87% reduction)
+     556 files    →  symbol map    in 309ms
 ```
 
-## Features
+---
 
-- **Repo Mapping**: Symbol-level codebase summaries using tree-sitter and PageRank
-- **Usage Learning**: Tracks which files you actually read, edit, and reference
-- **Smart Prediction**: Predicts which files you'll need based on patterns
-- **Memory Compression**: Optional long-term memory via Claude API
-- **Zero Dependencies**: Core functionality works standalone
+## Why attnroute?
 
-## Installation
+AI coding assistants waste tokens by injecting entire files when you only need a few functions. attnroute fixes this by:
 
-```bash
-# Core only (no external dependencies)
-pip install attnroute
+- **Learning your patterns** — tracks which files you actually use together
+- **Predicting what's next** — pre-warms files before you ask for them
+- **Compressing intelligently** — symbol-level summaries instead of full content
+- **Working standalone** — zero required dependencies, optional enhancements
 
-# With semantic search
-pip install attnroute[search]
+## Verified Performance
 
-# With AST parsing and PageRank
-pip install attnroute[graph]
+Measured with `tiktoken cl100k_base` on real codebases:
 
-# With memory compression
-pip install attnroute[compression]
+| Repository | Files | Before | After | Reduction | Time |
+|:-----------|------:|-------:|------:|----------:|-----:|
+| Go backend | 556 | 1,569,434 | 2,027 | **99.87%** | 309ms |
+| Python lib | 30 | 94,991 | 2,072 | **97.82%** | 95ms |
 
-# Everything
-pip install attnroute[all]
-```
+> **Don't trust these numbers?** Run `attnroute benchmark` on your own codebase.
+
+---
 
 ## Quick Start
 
 ```bash
+# Install with all features
+pip install attnroute[all]
+
 # Initialize for your project
 attnroute init
 
-# Check status
+# Check what's available
 attnroute status
-
-# View efficiency metrics
-attnroute report
 ```
+
+### Installation Options
+
+```bash
+pip install attnroute              # Core only (zero dependencies)
+pip install attnroute[search]      # + BM25 & semantic search
+pip install attnroute[graph]       # + tree-sitter & PageRank
+pip install attnroute[compression] # + Claude API memory
+pip install attnroute[all]         # Everything
+```
+
+---
 
 ## How It Works
 
 attnroute maintains a "working memory" of your codebase:
 
-1. **Attention Tracking**: Monitors which files you interact with
-2. **Heat Decay**: Recent files stay "hot", older ones cool down
-3. **Co-activation**: Files used together get linked
-4. **Repo Mapping**: Generates symbol-level summaries ranked by PageRank
-5. **Token Budgeting**: Fits context within limits, prioritizing by importance
-
-### Context Injection Strategy
-
 ```
-HOT files (score > 0.7):  Full content for first file, symbols for rest
-WARM files (0.3 - 0.7):   Headers and key signatures only
-COLD files (< 0.3):       Not injected
+┌─────────────────────────────────────────────────────────────┐
+│  HOT (score > 0.7)    Full content — active focus           │
+│  WARM (0.3 - 0.7)     Symbols only — background awareness   │
+│  COLD (< 0.3)         Not injected — out of context         │
+└─────────────────────────────────────────────────────────────┘
 ```
+
+**The pipeline:**
+
+1. **Attention Tracking** — monitors file interactions in real-time
+2. **Heat Decay** — recent files stay hot, old ones cool down
+3. **Co-activation** — files used together get linked
+4. **PageRank** — dependency graph ranks importance
+5. **Token Budget** — fits everything within your limits
+
+---
+
+## Features
+
+### Repo Mapping
+Extracts function and class signatures using tree-sitter AST parsing. Ranks files by importance using PageRank on the dependency graph.
+
+### Usage Learning
+Learns prompt→file associations over time. Boosts files that historically match your query patterns.
+
+### Smart Prediction
+Predicts which files you'll need based on:
+- Recent file sequences
+- Keyword associations
+- Co-occurrence patterns
+- Project context
+
+### Memory Compression
+Optional long-term memory via Claude API. Compresses tool outputs into semantic summaries for retrieval across sessions.
+
+---
+
+## CLI Commands
+
+```bash
+attnroute init          # Set up for current project
+attnroute status        # Show configuration and features
+attnroute report        # Token efficiency metrics
+attnroute benchmark     # Run performance benchmarks
+attnroute diagnostic    # Generate bug report
+attnroute history       # View attention history
+attnroute version       # Show version info
+
+# With optional dependencies:
+attnroute graph stats   # Dependency graph info
+attnroute compress stats # Memory compression stats
+```
+
+---
+
+## Configuration
+
+Create `.claude/keywords.json` in your project:
+
+```json
+{
+  "keywords": {
+    "src/api.py": ["api", "endpoint", "route", "handler"],
+    "src/auth.py": ["auth", "login", "token", "session"],
+    "docs/setup.md": ["install", "setup", "configure"]
+  },
+  "pinned": ["README.md", "src/config.py"]
+}
+```
+
+See [`examples/keywords.json`](examples/keywords.json) for a complete example.
+
+---
 
 ## Architecture
 
@@ -89,105 +143,47 @@ COLD files (< 0.3):       Not injected
 attnroute/
 ├── context_router.py   # Main routing logic, attention tracking
 ├── repo_map.py         # Tree-sitter parsing, PageRank ranking
-├── compressor.py       # Memory compression (optional)
 ├── learner.py          # Usage pattern learning
 ├── predictor.py        # File prediction model
+├── compressor.py       # Memory compression (optional)
 ├── indexer.py          # BM25/semantic search (optional)
+├── graph_retriever.py  # Dependency graph CLI (optional)
 └── cli.py              # Command-line interface
 ```
 
-## Configuration
-
-Create `keywords.json` in your project's `.claude/` directory:
-
-```json
-{
-  "keywords": {
-    "docs/api.md": ["api", "endpoint", "route"],
-    "docs/setup.md": ["install", "setup", "config"]
-  },
-  "pinned": ["docs/overview.md"]
-}
-```
+---
 
 ## Benchmarks
 
 ### Methodology
 
-Our benchmarks use:
-- **tiktoken cl100k_base** for token counting (same family as Claude)
-- **Multiple runs** with standard deviation and 95% confidence intervals
-- **Real file content**, not estimates
-- **Full timing** including indexing and generation
+Our benchmarks are designed for transparency and reproducibility:
 
-### Running Benchmarks
+- **tiktoken cl100k_base** — same tokenizer family as Claude
+- **Multiple runs** — statistical analysis with 95% confidence intervals
+- **Real content** — actual file tokens, not estimates
+- **Full timing** — includes indexing and map generation
+
+### Run Your Own
 
 ```bash
-# Quick verification
-python benchmarks/verify_claims.py
+# Quick verification on current directory
+attnroute benchmark
+
+# Test on a specific repo
+python benchmarks/verify_claims.py /path/to/repo
 
 # Full statistical benchmark
 python benchmarks/bulletproof_benchmark.py --runs 5
 
-# Head-to-head with Aider (requires aider-chat installed)
-python benchmarks/aider_head_to_head.py /path/to/git/repo
+# Compare with Aider (if installed)
+python benchmarks/aider_head_to_head.py /path/to/repo
 ```
 
-## Related Projects
-
-attnroute builds on ideas from several excellent projects:
-
-- [Aider](https://github.com/paul-gauthier/aider) - Pioneered repo mapping with tree-sitter and PageRank
-- [Claude Code](https://github.com/anthropics/claude-code) - Anthropic's CLI for Claude
-- [Continuous Memory](https://github.com/anthropics/anthropic-cookbook) - Memory patterns for LLMs
-
-## Issues and Feedback
-
-### Report a Bug
-
-Generate a diagnostic report to include with your issue:
-
-```bash
-# Generate a shareable report
-attnroute diagnostic
-
-# Or for a specific repository
-attnroute diagnostic /path/to/your/repo
-```
-
-This creates `attnroute_diagnostic.txt` with:
-- System info (OS, Python version, installed dependencies)
-- Repository stats (file count, types)
-- Benchmark results (latency, token counts)
-- Configuration status
-
-[Open an issue](https://github.com/jeranaias/attnroute/issues/new) with:
-- What happened vs what you expected
-- Steps to reproduce
-- The diagnostic report file
-
-### Performance Not As Expected?
-
-Run the benchmark on your repo and share the results:
-
-```bash
-attnroute benchmark
-# Or: python benchmarks/verify_claims.py /path/to/your/repo
-```
-
-This helps us understand where attnroute can improve.
-
-### Feature Requests
-
-We'd love to hear your ideas! [Open an issue](https://github.com/jeranaias/attnroute/issues/new) describing:
-- Your use case
-- How you envision it working
+---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
-
-Quick start:
 ```bash
 git clone https://github.com/jeranaias/attnroute.git
 cd attnroute
@@ -195,10 +191,41 @@ pip install -e ".[all,dev]"
 pytest tests/
 ```
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+---
+
+## Issues & Support
+
+**Found a bug?** Generate a diagnostic report:
+
+```bash
+attnroute diagnostic
+```
+
+Then [open an issue](https://github.com/jeranaias/attnroute/issues/new) with:
+- What happened vs. what you expected
+- Steps to reproduce
+- The diagnostic report file
+
+---
+
+## Acknowledgments
+
+attnroute builds on ideas from:
+
+- [Aider](https://github.com/paul-gauthier/aider) — pioneered repo mapping with tree-sitter and PageRank
+- [Claude Code](https://github.com/anthropics/claude-code) — Anthropic's CLI for Claude
+- [Anthropic Cookbook](https://github.com/anthropics/anthropic-cookbook) — memory patterns for LLMs
+
+---
+
 ## License
 
 MIT
 
 ---
 
-*Built for developers who want efficient AI-assisted coding without wasting tokens.*
+<p align="center">
+  <i>Stop wasting tokens. Start routing attention.</i>
+</p>

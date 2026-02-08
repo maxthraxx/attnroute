@@ -1,6 +1,6 @@
 # attnroute
 
-### Intelligent Context Routing for AI Coding Assistants
+### Intelligent Context Routing for Claude Code
 
 **Cut your token usage by 98%+** — attnroute learns which files matter and delivers only what's needed.
 
@@ -11,14 +11,92 @@
 
 ---
 
-## Why attnroute?
+## What is This?
 
-AI coding assistants waste tokens by injecting entire files when you only need a few functions. attnroute fixes this by:
+attnroute is a **hook system for [Claude Code](https://github.com/anthropics/claude-code)** (Anthropic's CLI). It automatically injects smart context into every prompt, so Claude sees the right files without you copying/pasting anything.
 
-- **Learning your patterns** — tracks which files you actually use together
-- **Predicting what's next** — pre-warms files before you ask for them
-- **Compressing intelligently** — symbol-level summaries instead of full content
-- **Working standalone** — zero required dependencies, optional enhancements
+**Before attnroute:** Claude reads your entire codebase (millions of tokens, slow, expensive)
+
+**After attnroute:** Claude sees only relevant symbols and files (thousands of tokens, fast, cheap)
+
+---
+
+## 5-Minute Setup
+
+### 1. Install
+
+```bash
+pip install attnroute[all]
+```
+
+### 2. Initialize
+
+```bash
+cd /path/to/your/project
+attnroute init
+```
+
+This automatically configures Claude Code's hooks. That's it.
+
+### 3. Verify It's Working
+
+```bash
+attnroute status
+```
+
+You should see:
+```
+attnroute Status
+==================================================
+Features: BM25 search, Semantic search, Graph retrieval...
+Keywords: .claude/keywords.json
+Telemetry: X turns recorded
+```
+
+### 4. Use Claude Code Normally
+
+Just use Claude Code as you normally would. attnroute works invisibly in the background:
+
+```bash
+claude   # Start Claude Code - attnroute hooks activate automatically
+```
+
+Every prompt you send now includes intelligently-selected context. You'll notice:
+- Faster responses (less tokens to process)
+- Better answers (relevant files, not random ones)
+- Lower costs (if using API directly)
+
+---
+
+## How Do I Know It's Working?
+
+Run this after a coding session:
+
+```bash
+attnroute report
+```
+
+You'll see token savings, which files were injected, and efficiency metrics.
+
+Or check the history:
+
+```bash
+attnroute history
+```
+
+---
+
+## Installation Options
+
+```bash
+pip install attnroute              # Core only (zero dependencies)
+pip install attnroute[search]      # + BM25 & semantic search
+pip install attnroute[graph]       # + tree-sitter & PageRank
+pip install attnroute[compression] # + Claude API memory
+pip install attnroute[all]         # Everything (recommended)
+```
+
+---
 
 ## Verified Performance
 
@@ -29,32 +107,7 @@ Measured with `tiktoken cl100k_base` on real codebases:
 | Go backend | 556 | 1,569,434 | 2,027 | **99.87%** | 309ms |
 | Python lib | 30 | 94,991 | 2,072 | **97.82%** | 95ms |
 
-> **Don't trust these numbers?** Run `attnroute benchmark` on your own codebase.
-
----
-
-## Quick Start
-
-```bash
-# Install with all features
-pip install attnroute[all]
-
-# Initialize for your project
-attnroute init
-
-# Check what's available
-attnroute status
-```
-
-### Installation Options
-
-```bash
-pip install attnroute              # Core only (zero dependencies)
-pip install attnroute[search]      # + BM25 & semantic search
-pip install attnroute[graph]       # + tree-sitter & PageRank
-pip install attnroute[compression] # + Claude API memory
-pip install attnroute[all]         # Everything
-```
+> **Skeptical?** Run `attnroute benchmark` on your own codebase.
 
 ---
 
@@ -72,38 +125,18 @@ attnroute maintains a "working memory" of your codebase:
 
 **The pipeline:**
 
-1. **Attention Tracking** — monitors file interactions in real-time
+1. **Attention Tracking** — monitors which files you interact with
 2. **Heat Decay** — recent files stay hot, old ones cool down
 3. **Co-activation** — files used together get linked
 4. **PageRank** — dependency graph ranks importance
-5. **Token Budget** — fits everything within your limits
+5. **Token Budget** — fits everything within limits
 
 ---
 
-## Features
-
-### Repo Mapping
-Extracts function and class signatures using tree-sitter AST parsing. Ranks files by importance using PageRank on the dependency graph.
-
-### Usage Learning
-Learns prompt→file associations over time. Boosts files that historically match your query patterns.
-
-### Smart Prediction
-Predicts which files you'll need based on:
-- Recent file sequences
-- Keyword associations
-- Co-occurrence patterns
-- Project context
-
-### Memory Compression
-Optional long-term memory via Claude API. Compresses tool outputs into semantic summaries for retrieval across sessions.
-
----
-
-## CLI Commands
+## CLI Reference
 
 ```bash
-attnroute init          # Set up for current project
+attnroute init          # Set up hooks for current project
 attnroute status        # Show configuration and features
 attnroute report        # Token efficiency metrics
 attnroute benchmark     # Run performance benchmarks
@@ -118,67 +151,59 @@ attnroute compress stats # Memory compression stats
 
 ---
 
-## Configuration
+## Configuration (Optional)
 
-Create `.claude/keywords.json` in your project:
+For better results, create `.claude/keywords.json` in your project:
 
 ```json
 {
   "keywords": {
     "src/api.py": ["api", "endpoint", "route", "handler"],
-    "src/auth.py": ["auth", "login", "token", "session"],
-    "docs/setup.md": ["install", "setup", "configure"]
+    "src/auth.py": ["auth", "login", "token", "session"]
   },
   "pinned": ["README.md", "src/config.py"]
 }
 ```
 
+**pinned** files are always included. **keywords** help match prompts to files.
+
 See [`examples/keywords.json`](examples/keywords.json) for a complete example.
 
 ---
 
-## Architecture
+## Troubleshooting
 
+### "attnroute not found" after install
+```bash
+# Make sure it's in your PATH
+pip show attnroute   # Check installation location
 ```
-attnroute/
-├── context_router.py   # Main routing logic, attention tracking
-├── repo_map.py         # Tree-sitter parsing, PageRank ranking
-├── learner.py          # Usage pattern learning
-├── predictor.py        # File prediction model
-├── compressor.py       # Memory compression (optional)
-├── indexer.py          # BM25/semantic search (optional)
-├── graph_retriever.py  # Dependency graph CLI (optional)
-└── cli.py              # Command-line interface
+
+### Hooks not activating
+```bash
+# Re-run init
+attnroute init
+
+# Check Claude Code settings
+cat ~/.claude/settings.json | grep attnroute
+```
+
+### Not seeing token savings
+```bash
+# Check if telemetry is recording
+attnroute status
+
+# View recent activity
+attnroute history --last 10
 ```
 
 ---
 
-## Benchmarks
+## Requirements
 
-### Methodology
-
-Our benchmarks are designed for transparency and reproducibility:
-
-- **tiktoken cl100k_base** — same tokenizer family as Claude
-- **Multiple runs** — statistical analysis with 95% confidence intervals
-- **Real content** — actual file tokens, not estimates
-- **Full timing** — includes indexing and map generation
-
-### Run Your Own
-
-```bash
-# Quick verification on current directory
-attnroute benchmark
-
-# Test on a specific repo
-python benchmarks/verify_claims.py /path/to/repo
-
-# Full statistical benchmark
-python benchmarks/bulletproof_benchmark.py --runs 5
-
-# Compare with Aider (if installed)
-python benchmarks/aider_head_to_head.py /path/to/repo
-```
+- **Python 3.10+**
+- **Claude Code** (Anthropic's CLI)
+- Optional: tree-sitter, networkx, tiktoken for full features
 
 ---
 
@@ -212,11 +237,10 @@ Then [open an issue](https://github.com/jeranaias/attnroute/issues/new) with:
 
 ## Acknowledgments
 
-attnroute builds on ideas from:
+Built on ideas from:
 
-- [Aider](https://github.com/paul-gauthier/aider) — pioneered repo mapping with tree-sitter and PageRank
-- [Claude Code](https://github.com/anthropics/claude-code) — Anthropic's CLI for Claude
-- [Anthropic Cookbook](https://github.com/anthropics/anthropic-cookbook) — memory patterns for LLMs
+- [Aider](https://github.com/paul-gauthier/aider) — repo mapping with tree-sitter and PageRank
+- [Claude Code](https://github.com/anthropics/claude-code) — Anthropic's CLI
 
 ---
 

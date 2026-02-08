@@ -111,9 +111,9 @@ attnroute transforms Claude Code from a "read everything" approach to a "read wh
 
 | Aspect | Before attnroute | After attnroute |
 |--------|------------------|-----------------|
-| **Token Usage** | 1.5M+ per query | 2-5K per query |
-| **Response Time** | Slow (processing millions of tokens) | Fast (focused context) |
-| **API Cost** | High | **98%+ reduction** |
+| **Token Usage** | 50-200K per query (file hunting) | 2-5K per query (targeted) |
+| **Response Time** | Slower (more file reads) | Fast (pre-selected context) |
+| **API Cost** | Higher | **90%+ reduction** |
 | **Context Quality** | Random files | Relevant files ranked by importance |
 | **Setup Required** | N/A | 2 commands, 30 seconds |
 
@@ -132,13 +132,16 @@ attnroute transforms Claude Code from a "read everything" approach to a "read wh
 When you use Claude Code on a large codebase, it faces a fundamental challenge:
 
 ```
-Your Codebase: 500+ files, 1.5 million tokens
+Your Codebase: 500+ files, 1.5 million tokens total
 Claude's Context Window: 200K tokens (Sonnet) / 128K tokens (Haiku)
 ```
 
-**The naive solution**: Read everything, hit token limits, truncate randomly.
+**What happens**: Claude uses tools to search and read files, but without knowing your current focus, it often:
+- Reads files you don't need
+- Misses files you do need
+- Spends tokens hunting for the right context
 
-**The result**: Claude sees random files, misses the ones you actually need, gives worse answers, costs more money.
+**The result**: Slower responses, higher costs, and sometimes Claude misses the files that matter most.
 
 ### What Happens Without attnroute
 
@@ -457,10 +460,12 @@ def search(query: str) -> List[File]:
 
 All benchmarks measured with:
 - **Tokenizer**: tiktoken cl100k_base (same as Claude API)
-- **Baseline**: All files in repository concatenated
+- **Baseline**: All files in repository concatenated (theoretical maximum)
 - **attnroute**: Context injected for a typical query
 - **Hardware**: Standard laptop (no GPU required)
 - **Runs**: 3 runs, mean reported
+
+> **Note**: The baseline represents the theoretical maximum if you dumped your entire codebase. In practice, Claude Code selectively reads files, so real-world savings are typically 90%+ rather than 99%+.
 
 ### Results
 

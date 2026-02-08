@@ -148,31 +148,22 @@ def find_script(name: str) -> str:
     return name
 
 
-def build_hook_command(entry_point: str, script_fallback: str, python_cmd: str, use_entry_points: bool) -> str:
-    """Build the correct hook command string."""
-    if use_entry_points:
-        return entry_point
-    script_path = find_script(script_fallback)
-    return f'{python_cmd} "{script_path}"'
+def build_hook_command(module_name: str, python_cmd: str) -> str:
+    """Build the correct hook command using module invocation."""
+    return f'{python_cmd} -m attnroute.{module_name}'
 
 
-def build_settings(python_cmd: str, use_entry_points: bool, include_pool: bool = True) -> dict:
+def build_settings(python_cmd: str, use_entry_points: bool = False, include_pool: bool = True) -> dict:
     """Build the Claude Code settings.json hook configuration."""
     hooks = {
         "UserPromptSubmit": [{"hooks": [
-            {"type": "command", "command": build_hook_command(
-                "attnroute-router", "context-router-v2.py", python_cmd, use_entry_points
-            )},
+            {"type": "command", "command": build_hook_command("context_router", python_cmd)},
         ]}],
         "SessionStart": [{"hooks": [
-            {"type": "command", "command": build_hook_command(
-                "attnroute-init", "telemetry-session-init.py", python_cmd, use_entry_points
-            )},
+            {"type": "command", "command": build_hook_command("session_init", python_cmd)},
         ]}],
         "Stop": [{"hooks": [
-            {"type": "command", "command": build_hook_command(
-                "attnroute-record", "telemetry-record.py", python_cmd, use_entry_points
-            )},
+            {"type": "command", "command": build_hook_command("telemetry_record", python_cmd)},
         ]}],
     }
 

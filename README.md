@@ -29,6 +29,20 @@
 
 ## Quick Start
 
+### Option 1: Install from within Claude Code (Recommended)
+
+Just ask Claude to install it for you:
+
+```
+You: "Install attnroute for this project"
+
+Claude: pip install attnroute[all] && attnroute init
+```
+
+Then type `/hooks` and approve the new hooks. **Done** - works immediately, no restart needed.
+
+### Option 2: Install from terminal
+
 ```bash
 # Install
 pip install attnroute[all]
@@ -37,7 +51,7 @@ pip install attnroute[all]
 cd /path/to/your/project
 attnroute init
 
-# That's it. Use Claude Code normally.
+# Start Claude Code
 claude
 ```
 
@@ -523,10 +537,18 @@ attnroute benchmark
 
 ### Quick Install
 
+**From within Claude Code** (no restart needed):
+```
+You: "Install attnroute for this project"
+Then: /hooks → approve the new hooks
+```
+
+**From terminal**:
 ```bash
 pip install attnroute[all]
 cd /path/to/your/project
 attnroute init
+claude  # start Claude Code
 ```
 
 ### Installation Options

@@ -13,6 +13,7 @@ from datetime import datetime
 import json
 import hashlib
 import re
+import sys
 
 from attnroute.plugins.base import AttnroutePlugin
 
@@ -239,7 +240,9 @@ class LoopBreakerPlugin(AttnroutePlugin):
         else:
             cmd_sig = ""
 
-        return f"{tool}|{Path(target).name}|{old_sig}|{cmd_sig}"
+        # Use full normalized path to avoid false positives for same-named files in different dirs
+        normalized_target = target.replace("\\", "/").lower() if sys.platform == "win32" else target.replace("\\", "/")
+        return f"{tool}|{normalized_target}|{old_sig}|{cmd_sig}"
 
     def _hash_content(self, content: str) -> str:
         """Hash content for quick comparison."""

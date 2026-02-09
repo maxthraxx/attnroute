@@ -229,8 +229,8 @@ class BurnRatePlugin(AttnroutePlugin):
 
             elapsed_minutes = (last_time - first_time).total_seconds() / 60
 
-            if elapsed_minutes < 0.5:
-                return None  # Not enough time elapsed
+            if elapsed_minutes <= 0 or elapsed_minutes < 0.5:
+                return None  # Not enough time elapsed (also guards against division by zero)
 
             tokens_consumed = last["session_tokens"] - first["session_tokens"]
 
@@ -238,6 +238,8 @@ class BurnRatePlugin(AttnroutePlugin):
                 return None  # No consumption
 
             tokens_per_minute = tokens_consumed / elapsed_minutes
+            if tokens_per_minute <= 0:
+                return None  # Guard against edge cases
 
             # Get limit for plan
             plan = state.get("plan_type", "pro")

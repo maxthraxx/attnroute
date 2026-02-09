@@ -162,3 +162,32 @@ class TestVerifyFirst:
         ]
         warning = plugin.on_stop(tool_calls, {})
         assert warning is None  # Should not crash
+
+    def test_same_batch_read_then_edit_no_violation(self, plugin):
+        """Test that Read+Edit in same batch (Read first) is not a violation."""
+        plugin.on_session_start({})
+        # Read and Edit in same batch, Read comes first
+        tool_calls = [
+            {"tool": "Read", "target": "/path/to/file.py"},
+            {"tool": "Edit", "target": "/path/to/file.py"},
+        ]
+        warning = plugin.on_stop(tool_calls, {})
+        # Should NOT be a violation because Read came before Edit
+        assert warning is None
+        state = plugin.load_state()
+        assert len(state["violations"]) == 0
+
+    def test_same_batch_edit_then_read_is_violation(self, plugin):
+        """Test that Edit+Read in same batch (Edit first) IS a violation."""
+        plugin.on_session_start({})
+        # Edit comes before Read in the batch
+        tool_calls = [
+            {"tool": "Edit", "target": "/path/to/file.py"},
+            {"tool": "Read", "target": "/path/to/file.py"},
+        ]
+        warning = plugin.on_stop(tool_calls, {})
+        # Should BE a violation because Edit came before Read
+        assert warning is not None
+        assert "VIOLATION" in warning
+        state = plugin.load_state()
+        assert len(state["violations"]) == 1

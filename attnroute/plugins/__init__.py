@@ -55,6 +55,12 @@ def discover_plugins() -> None:
     except ImportError:
         pass
 
+    try:
+        from attnroute.plugins.burnrate import BurnRatePlugin
+        register_plugin(BurnRatePlugin)
+    except ImportError:
+        pass
+
     _discovered = True
 
 

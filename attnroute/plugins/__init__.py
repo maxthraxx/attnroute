@@ -49,6 +49,12 @@ def discover_plugins() -> None:
     except ImportError:
         pass
 
+    try:
+        from attnroute.plugins.loopbreaker import LoopBreakerPlugin
+        register_plugin(LoopBreakerPlugin)
+    except ImportError:
+        pass
+
     _discovered = True
 
 

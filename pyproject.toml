@@ -65,6 +65,9 @@ Documentation = "https://github.com/jeranaias/attnroute#readme"
 Repository = "https://github.com/jeranaias/attnroute"
 Issues = "https://github.com/jeranaias/attnroute/issues"
 
+[project.entry-points."attnroute.plugins"]
+verifyfirst = "attnroute.plugins.verifyfirst:VerifyFirstPlugin"
+
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"

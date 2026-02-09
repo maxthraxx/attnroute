@@ -49,6 +49,17 @@ except ImportError:
     except ImportError:
         TELEMETRY_LIB_AVAILABLE = False
 
+# Try to import plugin system
+try:
+    from attnroute.plugins import get_plugins
+    PLUGINS_AVAILABLE = True
+except ImportError:
+    try:
+        from plugins import get_plugins
+        PLUGINS_AVAILABLE = True
+    except ImportError:
+        PLUGINS_AVAILABLE = False
+
 try:
     from attnroute.learner import Learner, auto_extract_keywords
     _learner = Learner()
@@ -1205,9 +1216,29 @@ def main():
     # Update attention based on prompt
     state, activated = update_attention(state, prompt)
 
+    # === PLUGIN: on_prompt_pre ===
+    if PLUGINS_AVAILABLE:
+        for plugin in get_plugins():
+            try:
+                prompt, should_continue = plugin.on_prompt_pre(prompt, state)
+                if not should_continue:
+                    return
+            except Exception:
+                pass  # Never fail the hook due to plugins
+
     # Build output
     output, stats = build_context_output(state, docs_root)
     stats["total_chars"] = len(output)  # Add total chars to stats
+
+    # === PLUGIN: on_prompt_post ===
+    if PLUGINS_AVAILABLE:
+        for plugin in get_plugins():
+            try:
+                additional = plugin.on_prompt_post(prompt, output, state)
+                if additional:
+                    output = output + additional
+            except Exception:
+                pass  # Never fail the hook due to plugins
 
     # Append to history log (before save, so turn_count is correct)
     append_history(state, prev_state, activated, prompt, stats)

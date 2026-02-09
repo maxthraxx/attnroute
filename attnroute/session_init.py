@@ -43,6 +43,17 @@ except ImportError:
     except ImportError:
         LEARNER_AVAILABLE = False
 
+# Try to import plugin system
+try:
+    from attnroute.plugins import get_plugins
+    PLUGINS_AVAILABLE = True
+except ImportError:
+    try:
+        from plugins import get_plugins
+        PLUGINS_AVAILABLE = True
+    except ImportError:
+        PLUGINS_AVAILABLE = False
+
 
 def detect_project_switch():
     """If CWD changed since last session, reset attention scores."""
@@ -200,6 +211,18 @@ def main():
     dashboard = build_dashboard()
     if dashboard:
         print(dashboard)
+
+    # === PLUGIN: on_session_start ===
+    if PLUGINS_AVAILABLE:
+        import os
+        session_state = {"session_id": os.environ.get("CLAUDE_SESSION_ID", "unknown")}
+        for plugin in get_plugins():
+            try:
+                output = plugin.on_session_start(session_state)
+                if output:
+                    print(output)
+            except Exception:
+                pass  # Never fail the hook due to plugins
 
 
 if __name__ == "__main__":

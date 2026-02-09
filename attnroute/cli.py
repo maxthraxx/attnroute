@@ -245,6 +245,38 @@ def cmd_version(args):
             print(f"  {name}: Not installed")
 
 
+def cmd_plugins(args):
+    """Manage plugins."""
+    from attnroute.plugins import get_plugins, enable_plugin, disable_plugin, get_plugin, discover_plugins
+    discover_plugins()
+
+    if args.subcommand == "list":
+        plugins = get_plugins()
+        print("Installed plugins:")
+        for p in plugins:
+            status = "enabled" if p.is_enabled() else "disabled"
+            print(f"  {p.name} v{p.version} - {p.description} [{status}]")
+        if not plugins:
+            print("  (none)")
+    elif args.subcommand == "enable":
+        enable_plugin(args.name)
+        print(f"Enabled: {args.name}")
+    elif args.subcommand == "disable":
+        disable_plugin(args.name)
+        print(f"Disabled: {args.name}")
+    elif args.subcommand == "status":
+        plugin = get_plugin(args.name)
+        if plugin and hasattr(plugin, 'get_session_summary'):
+            summary = plugin.get_session_summary()
+            print(f"{plugin.name} status:")
+            for k, v in summary.items():
+                print(f"  {k}: {v}")
+        else:
+            print(f"Plugin not found or no status available: {args.name}")
+    else:
+        print("Usage: attnroute plugins [list|enable|disable|status] [name]")
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -319,6 +351,13 @@ For more information, visit: https://github.com/jeranaias/attnroute
     diag_parser.add_argument("--no-benchmark", action="store_true",
                              help="Skip running the benchmark")
 
+    # plugins command
+    plugins_parser = subparsers.add_parser("plugins", help="Manage plugins")
+    plugins_parser.add_argument("subcommand", nargs="?", default="list",
+                                choices=["list", "enable", "disable", "status"],
+                                help="Plugin subcommand (default: list)")
+    plugins_parser.add_argument("name", nargs="?", help="Plugin name (for enable/disable/status)")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -336,6 +375,7 @@ For more information, visit: https://github.com/jeranaias/attnroute
         "history": cmd_history,
         "version": cmd_version,
         "diagnostic": cmd_diagnostic,
+        "plugins": cmd_plugins,
     }
 
     handler = commands.get(args.command)

@@ -50,6 +50,17 @@ except ImportError:
     except ImportError:
         LEARNER_AVAILABLE = False
 
+# Try to import plugin system
+try:
+    from attnroute.plugins import get_plugins
+    PLUGINS_AVAILABLE = True
+except ImportError:
+    try:
+        from plugins import get_plugins
+        PLUGINS_AVAILABLE = True
+    except ImportError:
+        PLUGINS_AVAILABLE = False
+
 
 def parse_stdin():
     """Parse Stop hook stdin JSON."""
@@ -463,6 +474,17 @@ def main():
 
     # Extract tool calls from transcript
     tool_calls = extract_tool_calls_from_transcript(transcript_path)
+
+    # === PLUGIN: on_stop ===
+    if PLUGINS_AVAILABLE:
+        session_state = load_session_state()
+        for plugin in get_plugins():
+            try:
+                warning = plugin.on_stop(tool_calls, session_state)
+                if warning:
+                    print(warning, file=sys.stderr)
+            except Exception:
+                pass  # Never fail the hook due to plugins
 
     # Read turns.jsonl ONCE (avoid triple-read)
     turn_lines, last_entry = read_last_turn()

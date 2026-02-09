@@ -111,11 +111,16 @@ attnroute is a **hook system for [Claude Code](https://github.com/anthropics/cla
    - [Semantic Search](#semantic-search)
    - [Graph-Based Retrieval](#graph-based-retrieval)
    - [Memory Compression](#memory-compression)
-9. [Troubleshooting](#troubleshooting)
-10. [Contributing](#contributing)
-11. [License](#license)
-12. [Author](#author)
-13. [Acknowledgments](#acknowledgments)
+9. [Plugins](#plugins)
+   - [VerifyFirst](#verifyfirst)
+   - [LoopBreaker](#loopbreaker)
+   - [BurnRate](#burnrate)
+   - [Plugin CLI](#plugin-cli)
+10. [Troubleshooting](#troubleshooting)
+11. [Contributing](#contributing)
+12. [License](#license)
+13. [Author](#author)
+14. [Acknowledgments](#acknowledgments)
 
 ---
 
@@ -734,6 +739,282 @@ pip install attnroute[compression]
 **What it does**: Compresses tool outputs (file reads, command results) into semantic summaries for long-term memory.
 
 **When it helps**: Multi-day coding sessions where you need to remember context from previous days.
+
+---
+
+## Plugins
+
+attnroute includes a **plugin system** that extends Claude Code with behavioral guardrails. Plugins hook into the session lifecycle to monitor, guide, and protect your coding sessions.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         Plugin Lifecycle                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  SessionStart ──► on_session_start()  ──► Initialize plugin state       │
+│                                                                         │
+│  UserPrompt ────► on_prompt_pre()     ──► Can modify/halt prompt        │
+│              ├──► Context Router      ──► Normal attnroute processing   │
+│              └──► on_prompt_post()    ──► Inject additional context     │
+│                                                                         │
+│  Stop ──────────► on_stop()           ──► Analyze tool calls, warn      │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+| Plugin | Purpose | Addresses |
+|--------|---------|-----------|
+| **VerifyFirst** | Enforces read-before-write policy | [GitHub #23833](https://github.com/anthropics/claude-code/issues/23833) |
+| **LoopBreaker** | Detects repetitive failure loops | [GitHub #21431](https://github.com/anthropics/claude-code/issues/21431) |
+| **BurnRate** | Predicts rate limit exhaustion | [GitHub #22435](https://github.com/anthropics/claude-code/issues/22435) |
+
+All plugins are **enabled by default** and store state in `~/.claude/plugins/`.
+
+---
+
+### VerifyFirst
+
+**Problem**: Claude sometimes makes speculative edits without first reading the file to understand context, leading to broken code or incorrect assumptions.
+
+**Solution**: VerifyFirst tracks every file Claude reads and flags violations when edits are attempted on unread files.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  VerifyFirst Flow                                                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Tool Call: Read("auth.py")                                             │
+│       │                                                                 │
+│       ▼                                                                 │
+│  ┌─────────────────────┐                                                │
+│  │  files_read.add()   │  ──► auth.py now "verified"                    │
+│  └─────────────────────┘                                                │
+│                                                                         │
+│  Tool Call: Edit("auth.py", ...)                                        │
+│       │                                                                 │
+│       ▼                                                                 │
+│  ┌─────────────────────┐                                                │
+│  │  auth.py in         │  ──► ✓ Allowed (file was read first)           │
+│  │  files_read?        │                                                │
+│  └─────────────────────┘                                                │
+│                                                                         │
+│  Tool Call: Edit("config.py", ...)                                      │
+│       │                                                                 │
+│       ▼                                                                 │
+│  ┌─────────────────────┐                                                │
+│  │  config.py in       │  ──► ✗ VIOLATION (not read yet)                │
+│  │  files_read?        │      Logged + warning emitted                  │
+│  └─────────────────────┘                                                │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Context injection**: Every prompt includes a list of "verified" files that are safe to edit:
+
+```markdown
+## VerifyFirst Policy
+You MUST read a file before editing it.
+
+**Files verified (safe to edit):**
+- `auth.py`
+- `session.py`
+- `middleware.py`
+
+**IMPORTANT:** For any file NOT in this list, use Read first.
+```
+
+**Violation logging**: All violations are logged to `~/.claude/plugins/verifyfirst_violations.jsonl` for analysis.
+
+---
+
+### LoopBreaker
+
+**Problem**: Claude sometimes gets stuck making "multiple broken attempts instead of thinking through problems" — repeating the same failing approach 3, 4, 5+ times.
+
+**Solution**: LoopBreaker tracks tool call patterns and detects when Claude is repeating similar operations on the same file. When a loop is detected, it injects a "stop and reconsider" intervention.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  LoopBreaker Detection                                                   │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Recent attempts (last 20 tracked):                                     │
+│                                                                         │
+│  Turn 1: Edit("auth.py", old="def login", new="def login_v2")          │
+│  Turn 2: Edit("auth.py", old="def login", new="def login_fixed")       │
+│  Turn 3: Edit("auth.py", old="def login", new="def login_new")  ◄── 3x │
+│          │                                                              │
+│          ▼                                                              │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  LOOP DETECTED                                                   │   │
+│  │  Same file: auth.py                                              │   │
+│  │  Similar signature: Edit|auth.py|def:login|                      │   │
+│  │  Count: 3 attempts                                               │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Signature matching**: Each tool call is converted to a signature for comparison:
+
+```python
+signature = f"{tool}|{normalized_path}|{key_identifiers}|{command}"
+
+# Examples:
+"Edit|/src/auth.py|def:login:session:token|"
+"Bash|/src/auth.py||pytest"
+```
+
+**Intervention context**: When a loop is detected, the next prompt includes:
+
+```markdown
+## LoopBreaker Alert
+**WARNING:** You've attempted to modify `auth.py` 3 times with similar approach.
+
+**STOP and reconsider your approach:**
+1. Re-read the file to verify your understanding
+2. Check if you're solving the RIGHT problem
+3. Consider a completely different approach
+4. If stuck, ask the user for clarification
+
+**Do NOT repeat the same fix.** Try something fundamentally different.
+```
+
+**Loop breaking**: The loop clears automatically when Claude:
+- Works on a different file
+- Uses a fundamentally different approach (different signature)
+- Only reads without writing (exploration mode)
+
+---
+
+### BurnRate
+
+**Problem**: Users report 10x variance in quota consumption rates, hitting rate limits unexpectedly with no warning.
+
+**Solution**: BurnRate monitors token usage from Claude Code's stats cache, calculates a rolling burn rate (tokens/minute), and predicts when you'll exhaust your quota.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  BurnRate Calculation                                                    │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Stats source: ~/.claude/stats-cache.json                               │
+│                                                                         │
+│  Sample collection (last 20 samples):                                   │
+│                                                                         │
+│  Time     Session Tokens                                                │
+│  ─────────────────────────                                              │
+│  10:00    45,000  ████████████████████░░░░░░░░░░                        │
+│  10:05    52,000  ████████████████████████░░░░░░                        │
+│  10:10    61,000  ████████████████████████████░░                        │
+│  10:15    68,000  ██████████████████████████████                        │
+│                                                                         │
+│  Burn rate = (68,000 - 45,000) / 15 min = 1,533 tokens/min              │
+│                                                                         │
+│  Plan limit (Pro): 150,000 tokens                                       │
+│  Remaining: 150,000 - 68,000 = 82,000 tokens                            │
+│  Time until exhaustion: 82,000 / 1,533 = ~53 minutes                    │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Warning thresholds**:
+
+| Level | Trigger | Action |
+|-------|---------|--------|
+| Normal | >30 min remaining | No warning |
+| **WARNING** | 10-30 min remaining | Inject warning context |
+| **CRITICAL** | <10 min remaining | Inject urgent warning + suggestions |
+
+**Critical warning context**:
+
+```markdown
+## BurnRate CRITICAL
+**Estimated time until rate limit: ~8 minutes**
+
+- Current burn rate: 2,150 tokens/min
+- Tokens used this window: 142,000
+- Window limit: 150,000
+
+**Consider:**
+- Pausing for a few minutes to let the window slide
+- Switching to a smaller model (Haiku) for simple tasks
+- Breaking work into smaller, focused prompts
+```
+
+**Plan detection**: BurnRate auto-detects your plan type based on usage patterns:
+
+| Plan | Token Limit (5-hour window) | Detection |
+|------|----------------------------|-----------|
+| Free | 25,000 | Low sustained usage |
+| Pro | 150,000 | Default assumption |
+| Max 5x | 500,000 | >100K session tokens |
+| Max 20x | 2,000,000 | >300K session tokens |
+| API | Unlimited | Model name contains "api" |
+
+---
+
+### Plugin CLI
+
+```bash
+# List all installed plugins and their status
+attnroute plugins list
+
+# Output:
+# Installed plugins:
+#   verifyfirst v0.1.0 - Ensures files are read before being edited [enabled]
+#   loopbreaker v0.1.0 - Detects and breaks repetitive failure loops [enabled]
+#   burnrate v0.1.0 - Predicts and warns about rate limit consumption [enabled]
+
+# View plugin statistics
+attnroute plugins status verifyfirst
+
+# Output:
+# verifyfirst status:
+#   files_read: 23
+#   violations: 2
+
+attnroute plugins status loopbreaker
+
+# Output:
+# loopbreaker status:
+#   recent_attempts: 8
+#   loops_detected: 1
+#   loops_broken: 1
+#   active_loop: None
+
+attnroute plugins status burnrate
+
+# Output:
+# burnrate status:
+#   plan_type: pro
+#   samples_collected: 15
+#   warnings_issued: 0
+#   session_tokens: 45230
+#   tokens_per_minute: 892.4
+#   minutes_remaining: 117.5
+
+# Disable a plugin
+attnroute plugins disable burnrate
+# Output: Disabled: burnrate
+
+# Re-enable a plugin
+attnroute plugins enable burnrate
+# Output: Enabled: burnrate
+```
+
+**Plugin state location**: `~/.claude/plugins/`
+
+```
+~/.claude/plugins/
+├── config.json                      # Enable/disable settings
+├── verifyfirst_state.json           # VerifyFirst session state
+├── verifyfirst_violations.jsonl     # Violation history
+├── loopbreaker_state.json           # LoopBreaker session state
+├── loopbreaker_events.jsonl         # Loop detection events
+├── burnrate_state.json              # BurnRate session state
+└── burnrate_history.jsonl           # Token usage history
+```
 
 ---
 

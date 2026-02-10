@@ -15,10 +15,10 @@ Usage: attnroute init
 """
 
 import json
-import sys
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 try:
@@ -85,7 +85,7 @@ def maybe_build_search_index():
     Returns True if index was built or already exists.
     """
     try:
-        from attnroute.indexer import SearchIndex, SEARCH_AVAILABLE
+        from attnroute.indexer import SEARCH_AVAILABLE, SearchIndex
         if not SEARCH_AVAILABLE:
             return False
 
@@ -312,7 +312,7 @@ def main():
     """Main installer entry point."""
     print()
     print(f"  attnroute v{VERSION}")
-    print(f"  Attentional context routing for Claude Code")
+    print("  Attentional context routing for Claude Code")
     print("─" * 56)
     print()
 
@@ -339,8 +339,8 @@ def main():
             print(f"    - {name:<26} missing ({info['fallback']})")
 
     if installed < total:
-        print(f"\n  To install all dependencies:")
-        print(f"    pip install bm25s model2vec numpy tree-sitter tree-sitter-language-pack")
+        print("\n  To install all dependencies:")
+        print("    pip install bm25s model2vec numpy tree-sitter tree-sitter-language-pack")
     print()
 
     # Ensure telemetry directory
@@ -426,7 +426,7 @@ def main():
     suggest_cmd = 'attnroute-suggest' if use_entry_points else f"{python_cmd} \"{find_script('advisor.py')}\""
     oracle_cmd = 'attnroute-oracle' if use_entry_points else f"{python_cmd} \"{find_script('oracle.py')}\""
     index_cmd = 'attnroute-index' if use_entry_points else f"{python_cmd} \"{find_script('indexer.py')}\""
-    print(f"  Commands:")
+    print("  Commands:")
     print(f"    {report_cmd} --days 7        # Usage report")
     print(f"    {history_cmd} --stats        # Session history")
     print(f"    {suggest_cmd}                # CLAUDE.md suggestions")

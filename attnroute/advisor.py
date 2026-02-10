@@ -16,21 +16,27 @@ CLI: attnroute-suggest (list / --apply N / --dismiss N)
 
 import json
 import sys
+from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
-from datetime import datetime
-from collections import Counter
 
 try:
     from attnroute.telemetry_lib import (
-        windows_utf8_io, LEARNED_STATE_FILE, ensure_telemetry_dir, load_turns
+        LEARNED_STATE_FILE,
+        ensure_telemetry_dir,
+        load_turns,
+        windows_utf8_io,
     )
     windows_utf8_io()
 except ImportError:
     try:
         sys.path.insert(0, str(Path(__file__).parent))
         from telemetry_lib import (
-            windows_utf8_io, LEARNED_STATE_FILE, ensure_telemetry_dir, load_turns
+            LEARNED_STATE_FILE,
+            ensure_telemetry_dir,
+            load_turns,
+            windows_utf8_io,
         )
         windows_utf8_io()
     except ImportError:
@@ -67,7 +73,7 @@ class ClaudeMdAdvisor:
     def __init__(self):
         self.suggestions = self._load_suggestions()
 
-    def _load_suggestions(self) -> List[Dict]:
+    def _load_suggestions(self) -> list[dict]:
         """Load suggestions from learned_state.json."""
         if LEARNED_STATE_FILE.exists():
             try:
@@ -94,7 +100,7 @@ class ClaudeMdAdvisor:
         except Exception:
             pass
 
-    def analyze(self, turns: List[Dict] = None) -> List[Dict]:
+    def analyze(self, turns: list[dict] = None) -> list[dict]:
         """
         Analyze turns and generate suggestions.
 
@@ -135,7 +141,7 @@ class ClaudeMdAdvisor:
         self._save_suggestions()
         return new_suggestions
 
-    def _find_always_hot(self, turns: List[Dict]) -> List[Dict]:
+    def _find_always_hot(self, turns: list[dict]) -> list[dict]:
         """Find files that are HOT in >80% of turns."""
         recent = turns[-20:]  # Last 20 turns
         if len(recent) < 10:
@@ -163,7 +169,7 @@ class ClaudeMdAdvisor:
 
         return suggestions
 
-    def _find_repeated_phrases(self, turns: List[Dict]) -> List[Dict]:
+    def _find_repeated_phrases(self, turns: list[dict]) -> list[dict]:
         """Find phrases that appear frequently in prompts."""
         # Extract 3-5 word phrases from prompts
         phrase_counts = Counter()
@@ -189,7 +195,7 @@ class ClaudeMdAdvisor:
 
         return suggestions
 
-    def _find_high_waste(self, turns: List[Dict]) -> List[Dict]:
+    def _find_high_waste(self, turns: list[dict]) -> list[dict]:
         """Find files with high waste ratio over multiple turns."""
         file_stats = {}  # file -> {injected: n, used: n}
 
@@ -221,7 +227,7 @@ class ClaudeMdAdvisor:
 
         return suggestions
 
-    def list_suggestions(self, status: str = None) -> List[Dict]:
+    def list_suggestions(self, status: str = None) -> list[dict]:
         """List suggestions, optionally filtered by status."""
         if status:
             return [s for s in self.suggestions if s.get("status") == status]
@@ -259,7 +265,7 @@ class ClaudeMdAdvisor:
                 return True
         return False
 
-    def _append_to_claude_md(self, suggestion: Dict) -> bool:
+    def _append_to_claude_md(self, suggestion: dict) -> bool:
         """Append suggested content to CLAUDE.md."""
         claude_md = Path.cwd() / "CLAUDE.md"
         if not claude_md.exists():
@@ -268,7 +274,7 @@ class ClaudeMdAdvisor:
         try:
             note = f"\n\n<!-- attnroute suggestion: {suggestion['file']} is frequently accessed -->\n"
             note += f"## {Path(suggestion['file']).stem} (auto-suggested)\n"
-            note += f"This file is accessed in most sessions. Key content should be added here.\n"
+            note += "This file is accessed in most sessions. Key content should be added here.\n"
 
             if claude_md.exists():
                 content = claude_md.read_text(encoding="utf-8")
@@ -286,7 +292,7 @@ class ClaudeMdAdvisor:
             print(f"Error applying suggestion: {e}", file=sys.stderr)
             return False
 
-    def _add_to_demoted(self, suggestion: Dict) -> bool:
+    def _add_to_demoted(self, suggestion: dict) -> bool:
         """Add file to demoted_files in router_overrides.json."""
         overrides_file = Path.home() / ".claude" / "telemetry" / "router_overrides.json"
 

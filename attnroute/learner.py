@@ -22,26 +22,32 @@ The learner runs automatically:
 """
 
 import json
-import re
 import math
+import re
 import sys
-from pathlib import Path
-from datetime import datetime
 from collections import Counter, defaultdict
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 try:
     from attnroute.telemetry_lib import (
-        windows_utf8_io, LEARNED_STATE_FILE, TELEMETRY_DIR,
-        ensure_telemetry_dir, load_turns
+        LEARNED_STATE_FILE,
+        TELEMETRY_DIR,
+        ensure_telemetry_dir,
+        load_turns,
+        windows_utf8_io,
     )
     windows_utf8_io()
 except ImportError:
     try:
         sys.path.insert(0, str(Path(__file__).parent))
         from telemetry_lib import (
-            windows_utf8_io, LEARNED_STATE_FILE, TELEMETRY_DIR,
-            ensure_telemetry_dir, load_turns
+            LEARNED_STATE_FILE,
+            TELEMETRY_DIR,
+            ensure_telemetry_dir,
+            load_turns,
+            windows_utf8_io,
         )
         windows_utf8_io()
     except ImportError:
@@ -105,7 +111,7 @@ RHYTHM_FAST = 0.50              # Decay rate for rarely revisited files
 # WORD EXTRACTION
 # ============================================================================
 
-def extract_prompt_words(prompt: str) -> List[str]:
+def extract_prompt_words(prompt: str) -> list[str]:
     """
     Extract significant words from a prompt for association learning.
 
@@ -116,7 +122,7 @@ def extract_prompt_words(prompt: str) -> List[str]:
     return [w for w in words if w not in _STOP_WORDS and len(w) >= 3]
 
 
-def auto_extract_keywords(docs_root: Path) -> Dict[str, List[str]]:
+def auto_extract_keywords(docs_root: Path) -> dict[str, list[str]]:
     """
     Extract keywords from .md file content when no keywords.json exists.
 
@@ -194,7 +200,7 @@ def auto_extract_keywords(docs_root: Path) -> Dict[str, List[str]]:
 # FILE RELATIONSHIPS (migrated from usage_tracker.py)
 # ============================================================================
 
-def extract_file_relationships(md_file: Path) -> Dict[str, any]:
+def extract_file_relationships(md_file: Path) -> dict[str, any]:
     """
     Extract file references and keywords from .claude/*.md file.
 
@@ -232,7 +238,7 @@ def extract_file_relationships(md_file: Path) -> Dict[str, any]:
     }
 
 
-def build_file_relationship_map(claude_dir: Optional[Path] = None) -> Dict[str, Dict]:
+def build_file_relationship_map(claude_dir: Path | None = None) -> dict[str, dict]:
     """
     Build map of .claude/*.md files → source files they describe.
 
@@ -633,7 +639,7 @@ class Learner:
         """Return learned co-activation graph for merging with config."""
         return self.state.get("coactivation_learned", {})
 
-    def get_file_decay(self, file: str) -> Optional[float]:
+    def get_file_decay(self, file: str) -> float | None:
         """
         Return learned per-file decay rate, or None to use default.
 
@@ -643,7 +649,7 @@ class Learner:
 
     # ---- Usage Tracking (migrated from usage_tracker.py) ----
 
-    def infer_file_usage(self, tool_calls: List[Dict]) -> Set[str]:
+    def infer_file_usage(self, tool_calls: list[dict]) -> set[str]:
         """
         Infer which .claude/*.md files were useful based on tool calls.
 
@@ -711,7 +717,7 @@ class Learner:
         score = (accessed + 2 * edited) / injected
         return min(1.0, round(score, 2))
 
-    def log_injection(self, injected_files: List[Dict], prompt: str = ""):
+    def log_injection(self, injected_files: list[dict], prompt: str = ""):
         """
         Log which files were injected this turn.
 
@@ -737,7 +743,7 @@ class Learner:
         self.state["usefulness"] = usefulness
         # Don't save on every injection - save is called by track_turn_usage
 
-    def track_turn_usage(self, tool_calls: List[Dict], injected_files: Optional[List[str]] = None):
+    def track_turn_usage(self, tool_calls: list[dict], injected_files: list[str] | None = None):
         """
         Analyze tool calls after turn completes, update usefulness statistics.
 
@@ -783,7 +789,7 @@ class Learner:
         """Get usefulness score for a file (alias for calculate_usefulness)."""
         return self.calculate_usefulness(file)
 
-    def get_usefulness_stats(self) -> Dict:
+    def get_usefulness_stats(self) -> dict:
         """Get summary statistics for all tracked files."""
         usefulness = self.state.get("usefulness", {})
         if not usefulness:

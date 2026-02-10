@@ -18,9 +18,9 @@ Requirements:
     pip install tiktoken tree-sitter-languages networkx
 """
 
+import hashlib
 import sys
 import time
-import hashlib
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -38,12 +38,12 @@ def verify_tokenizer():
         enc = tiktoken.get_encoding("cl100k_base")
         test = "Hello, world!"
         tokens = enc.encode(test)
-        print(f"  [PASS] tiktoken cl100k_base available")
+        print("  [PASS] tiktoken cl100k_base available")
         print(f"         Test: '{test}' = {len(tokens)} tokens")
         return enc
     except ImportError:
-        print(f"  [FAIL] tiktoken not installed")
-        print(f"         Run: pip install tiktoken")
+        print("  [FAIL] tiktoken not installed")
+        print("         Run: pip install tiktoken")
         return None
 
 
@@ -62,19 +62,19 @@ def verify_tree_sitter():
             from repo_map import TREE_SITTER_AVAILABLE
 
         if TREE_SITTER_AVAILABLE:
-            print(f"  [PASS] tree-sitter available via repo_map")
+            print("  [PASS] tree-sitter available via repo_map")
             return True
         else:
-            print(f"  [WARN] tree-sitter not available")
-            print(f"         Will use regex fallback (still works)")
+            print("  [WARN] tree-sitter not available")
+            print("         Will use regex fallback (still works)")
             return False
     except ImportError:
-        print(f"  [WARN] Could not check tree-sitter status")
-        print(f"         Will use regex fallback (still works)")
+        print("  [WARN] Could not check tree-sitter status")
+        print("         Will use regex fallback (still works)")
         return False
     except Exception as e:
         print(f"  [WARN] tree-sitter check failed: {e}")
-        print(f"         Will use regex fallback (still works)")
+        print("         Will use regex fallback (still works)")
         return False
 
 
@@ -87,12 +87,12 @@ def verify_repo_map():
 
     try:
         from attnroute.repo_map import RepoMapper
-        print(f"  [PASS] RepoMapper module available")
+        print("  [PASS] RepoMapper module available")
         return True
     except ImportError:
         try:
             from repo_map import RepoMapper
-            print(f"  [PASS] RepoMapper module available")
+            print("  [PASS] RepoMapper module available")
             return True
         except ImportError as e:
             print(f"  [FAIL] RepoMapper not available: {e}")
@@ -106,7 +106,7 @@ def count_tokens(text: str, tokenizer) -> int:
     return len(text) // 4  # Fallback
 
 
-def measure_repo(repo_path: Path, tokenizer) -> Dict:
+def measure_repo(repo_path: Path, tokenizer) -> dict:
     """Measure a repository and return verifiable results."""
     try:
         from attnroute.repo_map import RepoMapper
@@ -114,7 +114,7 @@ def measure_repo(repo_path: Path, tokenizer) -> Dict:
         from repo_map import RepoMapper
 
     print(f"\n  Measuring: {repo_path}")
-    print(f"  " + "-" * 50)
+    print("  " + "-" * 50)
 
     # Measure baseline (all source files)
     extensions = ['.py', '.go', '.js', '.ts', '.tsx', '.rs', '.java', '.c', '.cpp', '.h']

@@ -1,8 +1,8 @@
 """Base class for attnroute plugins."""
+import json
 from abc import ABC
 from pathlib import Path
-from typing import Optional, Tuple, List
-import json
+from typing import List, Optional, Tuple
 
 
 class AttnroutePlugin(ABC):
@@ -48,7 +48,7 @@ class AttnroutePlugin(ABC):
 
     # Lifecycle hooks (override as needed)
 
-    def on_session_start(self, session_state: dict) -> Optional[str]:
+    def on_session_start(self, session_state: dict) -> str | None:
         """
         Called on SessionStart hook.
 
@@ -60,7 +60,7 @@ class AttnroutePlugin(ABC):
         """
         return None
 
-    def on_prompt_pre(self, prompt: str, session_state: dict) -> Tuple[str, bool]:
+    def on_prompt_pre(self, prompt: str, session_state: dict) -> tuple[str, bool]:
         """
         Called before context routing.
 
@@ -93,7 +93,7 @@ class AttnroutePlugin(ABC):
         """
         return ""
 
-    def on_stop(self, tool_calls: List[dict], session_state: dict) -> Optional[str]:
+    def on_stop(self, tool_calls: list[dict], session_state: dict) -> str | None:
         """
         Called on Stop hook after Claude finishes.
 

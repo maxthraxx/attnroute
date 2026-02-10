@@ -5,15 +5,14 @@ attnroute.telemetry_lib — Shared utilities for token efficiency tracking.
 Provides constants, I/O helpers, session state, and token estimation
 used by all other attnroute modules.
 """
-import sys
+import hashlib
 import io
 import json
 import os
+import sys
 import uuid
-import hashlib
-from pathlib import Path
 from datetime import datetime
-
+from pathlib import Path
 
 # ============================================================================
 # CONSTANTS
@@ -100,7 +99,7 @@ def rotate_jsonl(path: Path, max_lines: int = 500):
     if not path.exists():
         return
     try:
-        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+        with open(path, encoding='utf-8', errors='replace') as f:
             lines = f.readlines()
         if len(lines) > max_lines:
             with open(path, 'w', encoding='utf-8') as f:
@@ -115,7 +114,7 @@ def load_turns(n: int = 25, project: str = None) -> list:
         return []
     entries = []
     try:
-        with open(TURNS_FILE, "r", encoding="utf-8", errors="replace") as f:
+        with open(TURNS_FILE, encoding="utf-8", errors="replace") as f:
             for line in f:
                 line = line.strip()
                 if not line:

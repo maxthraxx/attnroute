@@ -1,6 +1,7 @@
 """Tests for LoopBreaker plugin."""
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 class TestLoopBreaker:
@@ -8,8 +9,8 @@ class TestLoopBreaker:
 
     @pytest.fixture
     def plugin(self, tmp_path, monkeypatch):
-        from attnroute.plugins.loopbreaker import LoopBreakerPlugin
         from attnroute.plugins.base import AttnroutePlugin
+        from attnroute.plugins.loopbreaker import LoopBreakerPlugin
 
         monkeypatch.setattr(AttnroutePlugin, "_state_dir", tmp_path)
         return LoopBreakerPlugin()

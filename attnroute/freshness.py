@@ -19,17 +19,17 @@ Routing integration:
 import json
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
-from datetime import datetime
 
 try:
-    from attnroute.telemetry_lib import windows_utf8_io, TELEMETRY_DIR, ensure_telemetry_dir
+    from attnroute.telemetry_lib import TELEMETRY_DIR, ensure_telemetry_dir, windows_utf8_io
     windows_utf8_io()
 except ImportError:
     try:
         sys.path.insert(0, str(Path(__file__).parent))
-        from telemetry_lib import windows_utf8_io, TELEMETRY_DIR, ensure_telemetry_dir
+        from telemetry_lib import TELEMETRY_DIR, ensure_telemetry_dir, windows_utf8_io
         windows_utf8_io()
     except ImportError:
         TELEMETRY_DIR = Path.home() / ".claude" / "telemetry"
@@ -40,10 +40,10 @@ FRESHNESS_CACHE = TELEMETRY_DIR / "freshness_cache.json"
 
 # Try to import outliner for symbol extraction
 try:
-    from attnroute.outliner import extract_outline, TREE_SITTER_AVAILABLE
+    from attnroute.outliner import TREE_SITTER_AVAILABLE, extract_outline
 except ImportError:
     try:
-        from outliner import extract_outline, TREE_SITTER_AVAILABLE
+        from outliner import TREE_SITTER_AVAILABLE, extract_outline
     except ImportError:
         TREE_SITTER_AVAILABLE = False
         def extract_outline(path): return None
@@ -68,10 +68,10 @@ class StalenessChecker:
         self._recheck_interval = 10  # Recheck every N turns
 
         # Build symbol index on first use
-        self._symbols: Optional[Set[str]] = None
-        self._files: Optional[Set[str]] = None
+        self._symbols: set[str] | None = None
+        self._files: set[str] | None = None
 
-    def _load_cache(self) -> Dict:
+    def _load_cache(self) -> dict:
         """Load freshness cache."""
         if FRESHNESS_CACHE.exists():
             try:
@@ -91,7 +91,7 @@ class StalenessChecker:
         except Exception:
             pass
 
-    def _build_file_index(self) -> Set[str]:
+    def _build_file_index(self) -> set[str]:
         """Build index of all files in codebase."""
         if self._files is not None:
             return self._files
@@ -114,7 +114,7 @@ class StalenessChecker:
 
         return self._files
 
-    def _build_symbol_index(self) -> Set[str]:
+    def _build_symbol_index(self) -> set[str]:
         """Build index of code symbols (functions, classes) using tree-sitter."""
         if self._symbols is not None:
             return self._symbols
@@ -145,7 +145,7 @@ class StalenessChecker:
 
         return self._symbols
 
-    def extract_references(self, md_content: str) -> List[str]:
+    def extract_references(self, md_content: str) -> list[str]:
         """
         Extract code references from markdown content.
 
@@ -165,7 +165,7 @@ class StalenessChecker:
                 continue
             if ref.startswith("-") or ref.startswith("$"):
                 continue
-            if " " in ref and not "/" in ref:  # Multi-word but not a path
+            if " " in ref and "/" not in ref:  # Multi-word but not a path
                 continue
 
             code_refs.append(ref)
@@ -200,7 +200,7 @@ class StalenessChecker:
 
         return False
 
-    def check_staleness(self, md_path: Path, force: bool = False) -> Tuple[float, List[str]]:
+    def check_staleness(self, md_path: Path, force: bool = False) -> tuple[float, list[str]]:
         """
         Check staleness of a markdown file.
 
@@ -270,7 +270,7 @@ class StalenessChecker:
             return f"[STALE: {staleness:.0%} refs outdated] "
         return ""
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """Get freshness check statistics."""
         total_files = len(self.cache)
         stale_files = sum(1 for c in self.cache.values() if c.get("staleness", 0) > 0.5)

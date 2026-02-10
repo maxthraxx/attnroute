@@ -189,9 +189,10 @@ def cmd_history(args):
 
 def cmd_diagnostic(args):
     """Generate a diagnostic report for bug reports."""
-    from attnroute.diagnostic import generate_report, format_report_text
-    from pathlib import Path
     import json
+    from pathlib import Path
+
+    from attnroute.diagnostic import format_report_text, generate_report
 
     repo_path = Path(args.path).resolve() if args.path else Path.cwd()
 
@@ -248,7 +249,13 @@ def cmd_version(args):
 def cmd_plugins(args):
     """Manage plugins."""
     try:
-        from attnroute.plugins import get_plugins, enable_plugin, disable_plugin, get_plugin, discover_plugins
+        from attnroute.plugins import (
+            disable_plugin,
+            discover_plugins,
+            enable_plugin,
+            get_plugin,
+            get_plugins,
+        )
     except ImportError:
         print("Error: Plugin system not available. Ensure attnroute is installed correctly.")
         return

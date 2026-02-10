@@ -17,11 +17,11 @@ Usage:
 
 import argparse
 import json
-import sys
-from pathlib import Path
-from datetime import datetime, timedelta
-from collections import Counter
 import re
+import sys
+from collections import Counter
+from datetime import datetime, timedelta
+from pathlib import Path
 
 try:
     from attnroute.telemetry_lib import windows_utf8_io

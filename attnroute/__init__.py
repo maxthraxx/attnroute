@@ -22,7 +22,7 @@ __author__ = "jeranaias"
 
 # Core exports
 try:
-    from attnroute.context_router import update_attention, build_context_output, get_tier
+    from attnroute.context_router import build_context_output, get_tier, update_attention
 except ImportError:
     pass
 

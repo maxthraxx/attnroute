@@ -14,13 +14,13 @@ Target: 35%+ F1
 """
 
 import json
+import pickle
 import re
 import sys
-import pickle
-from pathlib import Path
-from collections import defaultdict, Counter
-from typing import Dict, List, Set, Tuple, Optional
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
 MODEL_CACHE_FILE = Path.home() / ".claude" / "telemetry" / "predictor_model.pkl"
@@ -28,14 +28,14 @@ MODEL_CACHE_FILE = Path.home() / ".claude" / "telemetry" / "predictor_model.pkl"
 
 @dataclass
 class PredictorModelV5:
-    co_occurrence: Dict[str, Counter] = field(default_factory=lambda: defaultdict(Counter))
-    project_files: Dict[str, Counter] = field(default_factory=lambda: defaultdict(Counter))
-    name_to_paths: Dict[str, Set[str]] = field(default_factory=lambda: defaultdict(set))
-    sequences: Dict[Tuple[str, ...], Counter] = field(default_factory=lambda: defaultdict(Counter))
-    strong_keywords: Dict[str, str] = field(default_factory=dict)
+    co_occurrence: dict[str, Counter] = field(default_factory=lambda: defaultdict(Counter))
+    project_files: dict[str, Counter] = field(default_factory=lambda: defaultdict(Counter))
+    name_to_paths: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
+    sequences: dict[tuple[str, ...], Counter] = field(default_factory=lambda: defaultdict(Counter))
+    strong_keywords: dict[str, str] = field(default_factory=dict)
     file_popularity: Counter = field(default_factory=Counter)
     # NEW: Project popularity (which files are most used in each project)
-    project_popularity: Dict[str, List[str]] = field(default_factory=dict)
+    project_popularity: dict[str, list[str]] = field(default_factory=dict)
 
 
 def normalize_path(path: str) -> str:
@@ -60,7 +60,7 @@ def get_project_prefix(path: str) -> str:
     return parts[0].lower() if parts else ""
 
 
-def extract_file_mentions(prompt: str) -> Set[str]:
+def extract_file_mentions(prompt: str) -> set[str]:
     mentions = set()
     for match in re.findall(r'[A-Za-z]:[\\\/][^\s<>"|*?\n]+', prompt):
         mentions.add(normalize_path(match))
@@ -73,7 +73,7 @@ def train_model_v5(max_sessions: int = 200) -> PredictorModelV5:
     print("Training smart predictor V5 model...")
 
     model = PredictorModelV5()
-    keyword_file_counts: Dict[str, Counter] = defaultdict(Counter)
+    keyword_file_counts: dict[str, Counter] = defaultdict(Counter)
     sessions_processed = 0
     total_turns = 0
 
@@ -88,7 +88,7 @@ def train_model_v5(max_sessions: int = 200) -> PredictorModelV5:
                 continue
 
             try:
-                with open(session_file, 'r', encoding='utf-8', errors='replace') as f:
+                with open(session_file, encoding='utf-8', errors='replace') as f:
                     lines = f.readlines()
             except Exception:
                 continue
@@ -193,15 +193,15 @@ def train_model_v5(max_sessions: int = 200) -> PredictorModelV5:
 def predict_files_v5(
     prompt: str,
     model: PredictorModelV5,
-    recent_files: List[str] = None,
-) -> List[Tuple[str, float]]:
+    recent_files: list[str] = None,
+) -> list[tuple[str, float]]:
     """
     Dual-mode prediction:
     - Confident mode: Use signals
     - Fallback mode: Use recency + project popularity
     """
     recent_files = recent_files or []
-    scores: Dict[str, float] = defaultdict(float)
+    scores: dict[str, float] = defaultdict(float)
     confident = False  # Track if we have high-confidence signals
 
     # Get project context from recent files
@@ -315,7 +315,7 @@ def benchmark_predictor_v5(model: PredictorModelV5, max_turns: int = 1500):
                 break
 
             try:
-                with open(session_file, 'r', encoding='utf-8', errors='replace') as f:
+                with open(session_file, encoding='utf-8', errors='replace') as f:
                     lines = f.readlines()
             except Exception:
                 continue
@@ -416,24 +416,24 @@ def benchmark_predictor_v5(model: PredictorModelV5, max_turns: int = 1500):
     print("\n" + "=" * 60)
     print("SMART PREDICTOR V5 RESULTS")
     print("=" * 60)
-    print(f"\n[ACCURACY]")
+    print("\n[ACCURACY]")
     print(f"   Precision: {avg_precision:.1%}")
     print(f"   Recall:    {avg_recall:.1%}")
     print(f"   F1 Score:  {f1:.1%}")
 
-    print(f"\n[MODE ANALYSIS]")
+    print("\n[MODE ANALYSIS]")
     print(f"   Confident predictions: {confident_count} ({confident_count/n:.1%})")
     print(f"   Fallback predictions:  {fallback_count} ({fallback_count/n:.1%})")
     print(f"   Avg predicted: {sum(pred_counts)/len(pred_counts):.2f}")
     print(f"   Avg actual:    {sum(actual_counts)/len(actual_counts):.2f}")
     print(f"   Hit@1: {hits_at_1/n:.1%}")
 
-    print(f"\n[PROGRESSION]")
-    print(f"   Keyword:  7.4%")
-    print(f"   V1:      17.5%")
-    print(f"   V2:      16.9%")
-    print(f"   V3:      26.1%")
-    print(f"   V4:      27.3%")
+    print("\n[PROGRESSION]")
+    print("   Keyword:  7.4%")
+    print("   V1:      17.5%")
+    print("   V2:      16.9%")
+    print("   V3:      26.1%")
+    print("   V4:      27.3%")
     print(f"   V5:      {f1:.1%}")
 
     if f1 >= 0.4:
@@ -467,7 +467,7 @@ def save_model(model: PredictorModelV5, path: Path = MODEL_CACHE_FILE):
         print(f"Failed to save predictor model: {e}", file=sys.stderr)
 
 
-def load_model(path: Path = MODEL_CACHE_FILE) -> Optional[PredictorModelV5]:
+def load_model(path: Path = MODEL_CACHE_FILE) -> PredictorModelV5 | None:
     """Load trained model from disk."""
     if not path.exists():
         return None
@@ -486,7 +486,7 @@ class FilePredictor:
     Lazily loads the trained model on first use and caches it in memory.
     """
     def __init__(self):
-        self._model: Optional[PredictorModelV5] = None
+        self._model: PredictorModelV5 | None = None
 
     def _ensure_model(self):
         """Lazy load model on first use."""
@@ -503,7 +503,7 @@ class FilePredictor:
             save_model(self._model)
             print("[predictor] Model trained and cached", file=sys.stderr)
 
-    def predict(self, recent_files: List[str], top_k: int = 3) -> List[Tuple[str, float]]:
+    def predict(self, recent_files: list[str], top_k: int = 3) -> list[tuple[str, float]]:
         """
         Predict which files are likely to be needed next.
 

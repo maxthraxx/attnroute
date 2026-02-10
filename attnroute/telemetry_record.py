@@ -15,26 +15,38 @@ Includes Context Confidence Self-Evaluation:
 Hook: Stop
 """
 import json
-import sys
 import os
 import subprocess
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 
 try:
     from attnroute.telemetry_lib import (
-        windows_utf8_io, TELEMETRY_DIR, TURNS_FILE,
-        load_session_state, save_session_state, atomic_jsonl_append,
-        ensure_telemetry_dir, rotate_jsonl, get_session_id
+        TELEMETRY_DIR,
+        TURNS_FILE,
+        atomic_jsonl_append,
+        ensure_telemetry_dir,
+        get_session_id,
+        load_session_state,
+        rotate_jsonl,
+        save_session_state,
+        windows_utf8_io,
     )
     windows_utf8_io()
 except ImportError:
     try:
         sys.path.insert(0, str(Path(__file__).parent))
         from telemetry_lib import (
-            windows_utf8_io, TELEMETRY_DIR, TURNS_FILE,
-            load_session_state, save_session_state, atomic_jsonl_append,
-            ensure_telemetry_dir, rotate_jsonl, get_session_id
+            TELEMETRY_DIR,
+            TURNS_FILE,
+            atomic_jsonl_append,
+            ensure_telemetry_dir,
+            get_session_id,
+            load_session_state,
+            rotate_jsonl,
+            save_session_state,
+            windows_utf8_io,
         )
         windows_utf8_io()
     except ImportError:
@@ -342,7 +354,7 @@ def read_last_turn():
         return None, None
 
     try:
-        with open(TURNS_FILE, "r", encoding="utf-8", errors="replace") as f:
+        with open(TURNS_FILE, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
 
         if not lines:

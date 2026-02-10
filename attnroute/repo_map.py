@@ -22,14 +22,14 @@ Usage:
 
 import re
 import sys
-from pathlib import Path
-from typing import Dict, List, Set, Tuple, Optional
-from dataclasses import dataclass, field
 from collections import defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 # Try to import tree-sitter
 try:
-    from tree_sitter_languages import get_parser, get_language
+    from tree_sitter_languages import get_language, get_parser
     TREE_SITTER_AVAILABLE = True
 except ImportError:
     TREE_SITTER_AVAILABLE = False
@@ -109,7 +109,7 @@ class Symbol:
     kind: str  # function, class, method, import
     signature: str  # Full signature line
     line: int
-    docstring: Optional[str] = None
+    docstring: str | None = None
 
 
 @dataclass
@@ -117,8 +117,8 @@ class FileSymbols:
     """Symbols extracted from a file."""
     path: str
     language: str
-    symbols: List[Symbol] = field(default_factory=list)
-    imports: List[str] = field(default_factory=list)
+    symbols: list[Symbol] = field(default_factory=list)
+    imports: list[str] = field(default_factory=list)
     token_estimate: int = 0
 
 
@@ -132,7 +132,7 @@ class RepoMapper:
     def __init__(self, repo_path: str, max_files: int = 500):
         self.repo_path = Path(repo_path)
         self.max_files = max_files
-        self.file_symbols: Dict[str, FileSymbols] = {}
+        self.file_symbols: dict[str, FileSymbols] = {}
         self.dependency_graph = nx.DiGraph() if NETWORKX_AVAILABLE else None
         self._indexed = False
 
@@ -177,7 +177,7 @@ class RepoMapper:
         if verbose:
             print(f"Indexed {files_indexed} files, {sum(len(f.symbols) for f in self.file_symbols.values())} symbols")
 
-    def _parse_file(self, filepath: Path, language: str) -> Optional[FileSymbols]:
+    def _parse_file(self, filepath: Path, language: str) -> FileSymbols | None:
         """Parse a file and extract symbols."""
         try:
             content = filepath.read_text(encoding='utf-8', errors='replace')
@@ -189,7 +189,7 @@ class RepoMapper:
         else:
             return self._parse_with_regex(filepath, content, language)
 
-    def _parse_with_tree_sitter(self, filepath: Path, content: str, language: str) -> Optional[FileSymbols]:
+    def _parse_with_tree_sitter(self, filepath: Path, content: str, language: str) -> FileSymbols | None:
         """Parse using tree-sitter for accurate AST extraction."""
         try:
             parser = get_parser(language)
@@ -313,7 +313,7 @@ class RepoMapper:
             token_estimate=token_estimate
         )
 
-    def _parse_with_regex(self, filepath: Path, content: str, language: str) -> Optional[FileSymbols]:
+    def _parse_with_regex(self, filepath: Path, content: str, language: str) -> FileSymbols | None:
         """Fallback regex-based parsing when tree-sitter unavailable."""
         symbols = []
         imports = []
@@ -382,7 +382,7 @@ class RepoMapper:
                 if target and target in self.file_symbols:
                     self.dependency_graph.add_edge(filepath, target)
 
-    def _resolve_import(self, import_stmt: str, source_file: str, language: str) -> Optional[str]:
+    def _resolve_import(self, import_stmt: str, source_file: str, language: str) -> str | None:
         """Resolve an import statement to a file path."""
         if language == 'python':
             # from foo.bar import baz -> foo/bar.py
@@ -417,7 +417,7 @@ class RepoMapper:
 
         return None
 
-    def get_pagerank_scores(self) -> Dict[str, float]:
+    def get_pagerank_scores(self) -> dict[str, float]:
         """Get PageRank scores for all files."""
         if self.dependency_graph is None or len(self.dependency_graph) == 0:
             # Fallback: equal scores
@@ -431,8 +431,8 @@ class RepoMapper:
 
     def get_map(
         self,
-        query: Optional[str] = None,
-        active_files: Optional[List[str]] = None,
+        query: str | None = None,
+        active_files: list[str] | None = None,
         token_budget: int = DEFAULT_TOKEN_BUDGET,
     ) -> str:
         """
@@ -494,9 +494,9 @@ class RepoMapper:
 
     def _score_files(
         self,
-        query: Optional[str],
-        active_files: Optional[List[str]]
-    ) -> Dict[str, float]:
+        query: str | None,
+        active_files: list[str] | None
+    ) -> dict[str, float]:
         """Score files by relevance."""
         scores = {}
 
@@ -536,7 +536,7 @@ class RepoMapper:
 
     def get_context_for_files(
         self,
-        files: List[str],
+        files: list[str],
         include_related: bool = True,
         token_budget: int = DEFAULT_CONTEXT_BUDGET,
     ) -> str:
@@ -593,7 +593,7 @@ class RepoMapper:
 
         return '\n'.join(lines)
 
-    def _format_file_detailed(self, filepath: str, file_info: FileSymbols) -> List[str]:
+    def _format_file_detailed(self, filepath: str, file_info: FileSymbols) -> list[str]:
         """Format a file with full symbol details."""
         lines = [f"\n## {filepath}"]
 

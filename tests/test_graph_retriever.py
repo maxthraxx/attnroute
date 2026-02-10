@@ -1,7 +1,8 @@
 """Tests for graph_retriever module."""
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 def test_graph_available_import():
@@ -12,11 +13,11 @@ def test_graph_available_import():
 
 def test_get_stats_no_deps():
     """Test get_stats returns proper structure when deps unavailable."""
-    from attnroute.graph_retriever import get_stats, GRAPH_AVAILABLE
-    
+    from attnroute.graph_retriever import GRAPH_AVAILABLE, get_stats
+
     stats = get_stats(".")
     assert "available" in stats
-    
+
     if not GRAPH_AVAILABLE:
         assert stats["available"] is False
         assert "reason" in stats
@@ -24,10 +25,10 @@ def test_get_stats_no_deps():
 
 def test_get_graph_context():
     """Test get_graph_context function."""
-    from attnroute.graph_retriever import get_graph_context, GRAPH_AVAILABLE
-    
+    from attnroute.graph_retriever import GRAPH_AVAILABLE, get_graph_context
+
     result = get_graph_context("test query", ".")
-    
+
     if not GRAPH_AVAILABLE:
         assert result is None
     else:

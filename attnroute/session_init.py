@@ -9,25 +9,37 @@ Hook: SessionStart
 """
 import json
 import sys
-from pathlib import Path
 from datetime import datetime, timedelta
+from pathlib import Path
 
 try:
     from attnroute.telemetry_lib import (
-        windows_utf8_io, ensure_telemetry_dir,
-        load_turns, load_stats_cache, load_router_overrides,
-        load_session_state, save_session_state, get_project,
-        ATTN_STATE_PROJECT, TELEMETRY_DIR
+        ATTN_STATE_PROJECT,
+        TELEMETRY_DIR,
+        ensure_telemetry_dir,
+        get_project,
+        load_router_overrides,
+        load_session_state,
+        load_stats_cache,
+        load_turns,
+        save_session_state,
+        windows_utf8_io,
     )
     windows_utf8_io()
 except ImportError:
     try:
         sys.path.insert(0, str(Path(__file__).parent))
         from telemetry_lib import (
-            windows_utf8_io, ensure_telemetry_dir,
-            load_turns, load_stats_cache, load_router_overrides,
-            load_session_state, save_session_state, get_project,
-            ATTN_STATE_PROJECT, TELEMETRY_DIR
+            ATTN_STATE_PROJECT,
+            TELEMETRY_DIR,
+            ensure_telemetry_dir,
+            get_project,
+            load_router_overrides,
+            load_session_state,
+            load_stats_cache,
+            load_turns,
+            save_session_state,
+            windows_utf8_io,
         )
         windows_utf8_io()
     except ImportError:

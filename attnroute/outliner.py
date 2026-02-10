@@ -61,7 +61,7 @@ LANGUAGE_MAP = {
 # OUTLINE EXTRACTION
 # ============================================================================
 
-def extract_outline(file_path: Path) -> Optional[str]:
+def extract_outline(file_path: Path) -> str | None:
     """
     Extract code outline from a source file.
 
@@ -161,7 +161,7 @@ def _extract_python(root, content: str) -> list:
     return lines
 
 
-def _extract_python_func_sig(node, content: str) -> Optional[str]:
+def _extract_python_func_sig(node, content: str) -> str | None:
     """Extract Python function signature."""
     parts = []
     for child in node.children:
@@ -217,7 +217,7 @@ def _extract_js_ts(root, content: str) -> list:
     return lines
 
 
-def _extract_js_decl_sig(node, content: str) -> Optional[str]:
+def _extract_js_decl_sig(node, content: str) -> str | None:
     """Extract JS/TS class or function signature."""
     parts = []
     for child in node.children:
@@ -402,7 +402,7 @@ def _extract_c_cpp(root, content: str) -> list:
     return lines
 
 
-def _fallback_outline(file_path: Path) -> Optional[str]:
+def _fallback_outline(file_path: Path) -> str | None:
     """Fallback: extract function/class signatures via regex when tree-sitter unavailable."""
     import re
 

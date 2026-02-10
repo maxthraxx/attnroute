@@ -1,6 +1,7 @@
 """Tests for VerifyFirst plugin."""
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 class TestPluginBase:
@@ -35,7 +36,7 @@ class TestPluginRegistry:
         assert isinstance(plugins, list)
 
     def test_get_plugin_by_name(self):
-        from attnroute.plugins import get_plugin, discover_plugins
+        from attnroute.plugins import discover_plugins, get_plugin
         discover_plugins()
         plugin = get_plugin("verifyfirst")
         assert plugin is not None
@@ -47,8 +48,8 @@ class TestVerifyFirst:
 
     @pytest.fixture
     def plugin(self, tmp_path, monkeypatch):
-        from attnroute.plugins.verifyfirst import VerifyFirstPlugin
         from attnroute.plugins.base import AttnroutePlugin
+        from attnroute.plugins.verifyfirst import VerifyFirstPlugin
 
         monkeypatch.setattr(AttnroutePlugin, "_state_dir", tmp_path)
         return VerifyFirstPlugin()

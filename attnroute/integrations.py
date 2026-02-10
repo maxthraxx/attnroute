@@ -18,10 +18,11 @@ Architecture:
 
 import json
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Callable
+from typing import Any, Dict, List, Optional
 
 # Try to import attnroute modules
 try:
@@ -47,8 +48,8 @@ class ClaudeMemObservation:
     timestamp: str
     observation_type: str
     content: str
-    related_files: List[str]
-    concepts: List[str]
+    related_files: list[str]
+    concepts: list[str]
 
 
 class ClaudeMemAdapter:
@@ -69,8 +70,8 @@ class ClaudeMemAdapter:
         self.hot_threshold = 0.8
         self.warm_threshold = 0.25
 
-    def filter_by_attention(self, observations: List[ClaudeMemObservation],
-                           attention_scores: Dict[str, float]) -> List[ClaudeMemObservation]:
+    def filter_by_attention(self, observations: list[ClaudeMemObservation],
+                           attention_scores: dict[str, float]) -> list[ClaudeMemObservation]:
         """
         Filter Claude-Mem observations based on attnroute attention scores.
 
@@ -170,7 +171,7 @@ class LedgerEntry:
     timestamp: str
     type: str  # handoff, observation, decision
     content: str
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
 
 class ContinuousClaudeAdapter:
@@ -191,7 +192,7 @@ class ContinuousClaudeAdapter:
     def __init__(self):
         self.ledger_version = "1.0"
 
-    def export_to_ledger(self, learned_state: dict) -> List[LedgerEntry]:
+    def export_to_ledger(self, learned_state: dict) -> list[LedgerEntry]:
         """
         Export attnroute learned state to Continuous-Claude ledger format.
         """
@@ -246,7 +247,7 @@ class ContinuousClaudeAdapter:
 
         return entries
 
-    def import_from_ledger(self, entries: List[LedgerEntry]) -> dict:
+    def import_from_ledger(self, entries: list[LedgerEntry]) -> dict:
         """
         Import Continuous-Claude ledger entries to attnroute state format.
         """
@@ -288,7 +289,7 @@ class ContinuousClaudeAdapter:
 
         return state
 
-    def save_ledger(self, entries: List[LedgerEntry], filepath: Path):
+    def save_ledger(self, entries: list[LedgerEntry], filepath: Path):
         """Save ledger entries to JSON file."""
         data = {
             "version": self.ledger_version,
@@ -309,7 +310,7 @@ class ContinuousClaudeAdapter:
         filepath.parent.mkdir(parents=True, exist_ok=True)
         filepath.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
-    def load_ledger(self, filepath: Path) -> List[LedgerEntry]:
+    def load_ledger(self, filepath: Path) -> list[LedgerEntry]:
         """Load ledger entries from JSON file."""
         data = json.loads(Path(filepath).read_text(encoding="utf-8"))
 
@@ -323,8 +324,8 @@ class ContinuousClaudeAdapter:
             for e in data.get("entries", [])
         ]
 
-    def create_handoff(self, session_summary: str, key_decisions: List[str],
-                       next_steps: List[str]) -> LedgerEntry:
+    def create_handoff(self, session_summary: str, key_decisions: list[str],
+                       next_steps: list[str]) -> LedgerEntry:
         """
         Create a session handoff entry for Continuous-Claude.
         """
@@ -366,7 +367,7 @@ class HookAdapter:
     """
 
     def __init__(self):
-        self._hooks: Dict[str, List[Callable]] = {
+        self._hooks: dict[str, list[Callable]] = {
             "file_activated": [],
             "file_decayed": [],
             "context_built": [],
@@ -428,10 +429,10 @@ class HookAdapter:
 # INTEGRATION UTILITIES
 # ============================================================================
 
-def get_attention_scores() -> Dict[str, float]:
+def get_attention_scores() -> dict[str, float]:
     """Get current attention scores from attnroute state."""
     try:
-        from attnroute.context_router import load_state, get_state_file
+        from attnroute.context_router import get_state_file, load_state
         state_file = get_state_file()
         state = load_state(state_file)
         return state.get("scores", {})

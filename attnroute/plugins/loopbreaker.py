@@ -7,13 +7,13 @@ attempts instead of thinking through problems."
 Tracks tool call patterns to detect when Claude is repeating the same
 failing approach, then injects context forcing a different strategy.
 """
-from pathlib import Path
-from typing import List, Optional, Tuple, Dict
-from datetime import datetime
-import json
 import hashlib
+import json
 import re
 import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 from attnroute.plugins.base import AttnroutePlugin
 
@@ -45,7 +45,7 @@ class LoopBreakerPlugin(AttnroutePlugin):
         super().__init__()
         self._loops_file = self._state_dir / "loopbreaker_events.jsonl"
 
-    def on_session_start(self, session_state: dict) -> Optional[str]:
+    def on_session_start(self, session_state: dict) -> str | None:
         """Reset tracking for new session."""
         self.save_state({
             "session_id": session_state.get("session_id", "unknown"),
@@ -57,7 +57,7 @@ class LoopBreakerPlugin(AttnroutePlugin):
         })
         return "LoopBreaker: Active (repetitive failure detection)"
 
-    def on_prompt_pre(self, prompt: str, session_state: dict) -> Tuple[str, bool]:
+    def on_prompt_pre(self, prompt: str, session_state: dict) -> tuple[str, bool]:
         """Pass through - we don't modify prompts."""
         return prompt, True
 
@@ -98,12 +98,12 @@ class LoopBreakerPlugin(AttnroutePlugin):
 
         return "\n".join(lines)
 
-    def on_stop(self, tool_calls: List[dict], session_state: dict) -> Optional[str]:
+    def on_stop(self, tool_calls: list[dict], session_state: dict) -> str | None:
         """
         Analyze tool calls for repetitive patterns.
         """
         state = self.load_state()
-        recent_attempts: List[dict] = state.get("recent_attempts", [])
+        recent_attempts: list[dict] = state.get("recent_attempts", [])
 
         if not tool_calls:
             # No tool calls - clear any active loop (user is doing something else)
@@ -188,7 +188,7 @@ class LoopBreakerPlugin(AttnroutePlugin):
             self.save_state(state)
             return None
 
-    def _extract_work_attempts(self, tool_calls: List[dict]) -> List[dict]:
+    def _extract_work_attempts(self, tool_calls: list[dict]) -> list[dict]:
         """Extract work tool calls with signatures for comparison."""
         attempts = []
 
@@ -250,7 +250,7 @@ class LoopBreakerPlugin(AttnroutePlugin):
             return ""
         return hashlib.md5(content.encode()).hexdigest()[:8]
 
-    def _detect_loop(self, recent_attempts: List[dict]) -> Optional[dict]:
+    def _detect_loop(self, recent_attempts: list[dict]) -> dict | None:
         """
         Detect if recent attempts form a repetitive loop.
         Returns loop info if detected, None otherwise.
@@ -259,7 +259,7 @@ class LoopBreakerPlugin(AttnroutePlugin):
             return None
 
         # Group by file
-        by_file: Dict[str, List[dict]] = {}
+        by_file: dict[str, list[dict]] = {}
         for attempt in recent_attempts:
             file = attempt.get("file", "")
             if file:
@@ -285,7 +285,7 @@ class LoopBreakerPlugin(AttnroutePlugin):
                 }
 
             # Check for partial similarity
-            sig_counts: Dict[str, int] = {}
+            sig_counts: dict[str, int] = {}
             for sig in signatures:
                 sig_counts[sig] = sig_counts.get(sig, 0) + 1
 

@@ -6,8 +6,8 @@ This script calls Aider's RepoMap directly (bypassing the buggy console output)
 to get a fair, apples-to-apples comparison.
 """
 
-import sys
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -36,8 +36,9 @@ def analyze_aider_internals():
     print()
 
     try:
-        from aider.repomap import RepoMap
         import inspect
+
+        from aider.repomap import RepoMap
 
         # Get the source file
         source_file = inspect.getfile(RepoMap)
@@ -45,15 +46,15 @@ def analyze_aider_internals():
 
         # Check the get_repo_map signature
         sig = inspect.signature(RepoMap.get_repo_map)
-        print(f"\nget_repo_map signature:")
+        print("\nget_repo_map signature:")
         for param_name, param in sig.parameters.items():
             print(f"  {param_name}: {param.annotation if param.annotation != inspect.Parameter.empty else 'Any'}")
 
         # Check for key methods
         print("\nKey methods:")
-        print(f"  get_ranked_tags - Ranks files using PageRank")
-        print(f"  get_tags - Extracts tags using tree-sitter")
-        print(f"  render_tree - Renders the final map")
+        print("  get_ranked_tags - Ranks files using PageRank")
+        print("  get_tags - Extracts tags using tree-sitter")
+        print("  render_tree - Renders the final map")
 
         return True
 
@@ -73,9 +74,9 @@ def run_aider_repomap(repo_path: str, max_tokens: int = 4096):
     print()
 
     try:
-        from aider.repomap import RepoMap
         from aider.io import InputOutput
         from aider.models import Model
+        from aider.repomap import RepoMap
 
         # Change to repo directory
         original_dir = os.getcwd()
@@ -140,7 +141,7 @@ def run_aider_repomap(repo_path: str, max_tokens: int = 4096):
             except Exception:
                 output_tokens = len(repo_map) // 4
 
-            print(f"\nAider Results:")
+            print("\nAider Results:")
             print(f"  Output length: {len(repo_map)} chars")
             print(f"  Output tokens: {output_tokens:,}")
             print(f"  Generation time: {elapsed_ms:.1f}ms")
@@ -180,8 +181,8 @@ def run_attnroute_repomap(repo_path: str, max_tokens: int = 4096):
     print()
 
     try:
-        from repo_map import RepoMapper
         import tiktoken
+        from repo_map import RepoMapper
 
         print(f"Repository: {repo_path}")
 
@@ -204,7 +205,7 @@ def run_attnroute_repomap(repo_path: str, max_tokens: int = 4096):
         files_indexed = len(mapper.file_symbols)
         symbols_found = sum(len(f.symbols) for f in mapper.file_symbols.values())
 
-        print(f"\nattnroute Results:")
+        print("\nattnroute Results:")
         print(f"  Files indexed: {files_indexed}")
         print(f"  Symbols found: {symbols_found}")
         print(f"  Output length: {len(repo_map)} chars")

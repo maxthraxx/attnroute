@@ -13,26 +13,32 @@ CLI: attnroute-oracle
 """
 
 import json
+import math
 import re
 import sys
+from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime
-from collections import defaultdict
-import math
 
 try:
     from attnroute.telemetry_lib import (
-        windows_utf8_io, LEARNED_STATE_FILE, ensure_telemetry_dir,
-        load_turns, load_stats_cache
+        LEARNED_STATE_FILE,
+        ensure_telemetry_dir,
+        load_stats_cache,
+        load_turns,
+        windows_utf8_io,
     )
     windows_utf8_io()
 except ImportError:
     try:
         sys.path.insert(0, str(Path(__file__).parent))
         from telemetry_lib import (
-            windows_utf8_io, LEARNED_STATE_FILE, ensure_telemetry_dir,
-            load_turns, load_stats_cache
+            LEARNED_STATE_FILE,
+            ensure_telemetry_dir,
+            load_stats_cache,
+            load_turns,
+            windows_utf8_io,
         )
         windows_utf8_io()
     except ImportError:
@@ -78,7 +84,7 @@ class CostOracle:
     def __init__(self):
         self.task_costs = self._load_costs()
 
-    def _load_costs(self) -> Dict[str, Dict]:
+    def _load_costs(self) -> dict[str, dict]:
         """Load task costs from learned_state.json."""
         if LEARNED_STATE_FILE.exists():
             try:
@@ -105,7 +111,7 @@ class CostOracle:
         except Exception:
             pass
 
-    def classify_task(self, prompts: List[str], files_touched: List[str] = None) -> str:
+    def classify_task(self, prompts: list[str], files_touched: list[str] = None) -> str:
         """
         Classify task type from prompts and file patterns.
 
@@ -164,7 +170,7 @@ class CostOracle:
 
         self._save_costs()
 
-    def predict(self, task_type: str) -> Optional[Dict]:
+    def predict(self, task_type: str) -> dict | None:
         """
         Predict cost for a task type.
 
@@ -223,7 +229,7 @@ class CostOracle:
             "confidence": confidence,
         }
 
-    def predict_range(self, task_type: str) -> Optional[Tuple[float, float]]:
+    def predict_range(self, task_type: str) -> tuple[float, float] | None:
         """
         Get predicted cost range (P25-P75) for a task type.
 
@@ -234,7 +240,7 @@ class CostOracle:
             return None
         return (pred["p25"], pred["p75"])
 
-    def learn_from_stats(self, stats_cache: Dict = None):
+    def learn_from_stats(self, stats_cache: dict = None):
         """
         Learn from stats-cache.json token usage data.
 
@@ -294,7 +300,7 @@ class CostOracle:
             return f"Projected cost: ${pred['p25']:.2f}-${pred['p75']:.2f} ({top_task} task, {pred['samples']} samples)"
         return ""
 
-    def get_all_predictions(self) -> Dict[str, Dict]:
+    def get_all_predictions(self) -> dict[str, dict]:
         """Get predictions for all task types."""
         return {
             task_type: self.predict(task_type)

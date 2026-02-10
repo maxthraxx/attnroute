@@ -6,15 +6,15 @@ Plugins are discovered via:
 2. Explicit registration in config
 3. Built-in plugins (verifyfirst)
 """
-from pathlib import Path
-from typing import List, Dict, Type, Optional
 import json
 import sys
+from pathlib import Path
+from typing import Dict, List, Optional, Type
 
 from attnroute.plugins.base import AttnroutePlugin
 
 # Global plugin registry
-_plugins: Dict[str, AttnroutePlugin] = {}
+_plugins: dict[str, AttnroutePlugin] = {}
 _discovered: bool = False
 
 
@@ -64,7 +64,7 @@ def discover_plugins() -> None:
     _discovered = True
 
 
-def register_plugin(plugin_class: Type[AttnroutePlugin]) -> None:
+def register_plugin(plugin_class: type[AttnroutePlugin]) -> None:
     """Register a plugin class."""
     try:
         instance = plugin_class()
@@ -74,13 +74,13 @@ def register_plugin(plugin_class: Type[AttnroutePlugin]) -> None:
         pass
 
 
-def get_plugins() -> List[AttnroutePlugin]:
+def get_plugins() -> list[AttnroutePlugin]:
     """Get all registered and enabled plugins."""
     discover_plugins()
     return list(_plugins.values())
 
 
-def get_plugin(name: str) -> Optional[AttnroutePlugin]:
+def get_plugin(name: str) -> AttnroutePlugin | None:
     """Get a specific plugin by name."""
     discover_plugins()
     return _plugins.get(name)

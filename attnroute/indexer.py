@@ -21,17 +21,17 @@ import json
 import re
 import sqlite3
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime
 
 try:
-    from attnroute.telemetry_lib import windows_utf8_io, TELEMETRY_DIR
+    from attnroute.telemetry_lib import TELEMETRY_DIR, windows_utf8_io
     windows_utf8_io()
 except ImportError:
     try:
         sys.path.insert(0, str(Path(__file__).parent))
-        from telemetry_lib import windows_utf8_io, TELEMETRY_DIR
+        from telemetry_lib import TELEMETRY_DIR, windows_utf8_io
         windows_utf8_io()
     except ImportError:
         TELEMETRY_DIR = Path.home() / ".claude" / "telemetry"
@@ -111,7 +111,7 @@ class SimpleTFIDF:
         self.doc_vecs = []
         self.doc_paths = []
 
-    def index(self, documents: List[Tuple[str, str]]):
+    def index(self, documents: list[tuple[str, str]]):
         """Build index from (path, content) pairs."""
         self.doc_paths = [p for p, _ in documents]
         self.doc_vecs = []
@@ -149,7 +149,7 @@ class SimpleTFIDF:
                     vec[self.vocab[t]] = count * self.idf.get(t, 1.0)
             self.doc_vecs.append(vec)
 
-    def search(self, query: str, top_k: int = 20) -> List[Tuple[str, float]]:
+    def search(self, query: str, top_k: int = 20) -> list[tuple[str, float]]:
         """Search and return (path, score) pairs."""
         if not self.doc_vecs:
             return []
@@ -174,7 +174,7 @@ class SimpleTFIDF:
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:top_k]
 
-    def _tokenize(self, text: str) -> List[str]:
+    def _tokenize(self, text: str) -> list[str]:
         """Simple tokenization."""
         return re.findall(r'[a-z][a-z0-9_]{2,}', text.lower())
 
@@ -231,7 +231,7 @@ class SearchIndex:
                 self._model = False  # Mark as failed
         return self._model if self._model else None
 
-    def build(self, docs_root: Path, code_roots: List[Path] = None):
+    def build(self, docs_root: Path, code_roots: list[Path] = None):
         """
         Full index rebuild.
 
@@ -299,7 +299,7 @@ class SearchIndex:
 
         print(f"[indexer] Indexed {len(documents)} documents", file=sys.stderr)
 
-    def update_incremental(self, docs_root: Path, code_roots: List[Path] = None):
+    def update_incremental(self, docs_root: Path, code_roots: list[Path] = None):
         """Re-index only changed files (mtime check)."""
         code_roots = code_roots or []
         updated = 0
@@ -334,7 +334,7 @@ class SearchIndex:
             self._rebuild_memory_index()
             print(f"[indexer] Updated {updated} documents", file=sys.stderr)
 
-    def _build_memory_index(self, documents: List[Dict]):
+    def _build_memory_index(self, documents: list[dict]):
         """Build in-memory BM25/TF-IDF index from documents."""
         if not documents:
             return
@@ -364,7 +364,7 @@ class SearchIndex:
         documents = [{"path": p, "content": c} for p, c in rows]
         self._build_memory_index(documents)
 
-    def query(self, prompt: str, top_k: int = 10) -> List[Tuple[str, float]]:
+    def query(self, prompt: str, top_k: int = 10) -> list[tuple[str, float]]:
         """
         Hybrid search: BM25 → semantic rerank.
 
@@ -394,7 +394,7 @@ class SearchIndex:
 
         return candidates
 
-    def _bm25_search(self, query: str, top_k: int = 20) -> List[Tuple[str, float]]:
+    def _bm25_search(self, query: str, top_k: int = 20) -> list[tuple[str, float]]:
         """BM25 sparse retrieval."""
         if self._bm25 is not None and BM25_AVAILABLE:
             try:
@@ -413,8 +413,8 @@ class SearchIndex:
 
         return []
 
-    def _semantic_rerank(self, query: str, candidates: List[Tuple[str, float]],
-                         top_k: int = 10) -> List[Tuple[str, float]]:
+    def _semantic_rerank(self, query: str, candidates: list[tuple[str, float]],
+                         top_k: int = 10) -> list[tuple[str, float]]:
         """Model2Vec semantic reranking."""
         model = self._load_model()
         if not model or not NUMPY_AVAILABLE:
@@ -472,7 +472,7 @@ class SearchIndex:
             print(f"[indexer] Semantic rerank failed: {e}", file=sys.stderr)
             return candidates[:top_k]
 
-    def status(self) -> Dict:
+    def status(self) -> dict:
         """Return index status."""
         with sqlite3.connect(self.db_path) as conn:
             doc_count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
@@ -489,7 +489,7 @@ class SearchIndex:
             "db_path": str(self.db_path),
         }
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """Alias for status(), returns stats with total_documents key."""
         status = self.status()
         return {

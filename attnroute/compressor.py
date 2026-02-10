@@ -21,28 +21,28 @@ Compression Strategy:
   - Embeddings for semantic search
 """
 
+import hashlib
 import json
 import os
+import queue
 import sqlite3
 import sys
 import threading
-import queue
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple, Any
-import hashlib
+from typing import Any, Dict, List, Optional, Tuple
 
 # Try to import telemetry lib for consistent paths and token estimation
 try:
-    from attnroute.telemetry_lib import TELEMETRY_DIR, windows_utf8_io, estimate_tokens
+    from attnroute.telemetry_lib import TELEMETRY_DIR, estimate_tokens, windows_utf8_io
     windows_utf8_io()
     TELEMETRY_LIB_AVAILABLE = True
 except ImportError:
     try:
         sys.path.insert(0, str(Path(__file__).parent))
-        from telemetry_lib import TELEMETRY_DIR, windows_utf8_io, estimate_tokens
+        from telemetry_lib import TELEMETRY_DIR, estimate_tokens, windows_utf8_io
         windows_utf8_io()
         TELEMETRY_LIB_AVAILABLE = True
     except ImportError:
@@ -109,12 +109,12 @@ class CompressedObservation:
     timestamp: datetime               # When the observation occurred
     tool_name: str                    # bash, read, edit, grep, etc.
     observation_type: str             # bugfix|feature|refactor|discovery|decision|change
-    concepts: List[str]               # Technical concept tags
+    concepts: list[str]               # Technical concept tags
     raw_tokens: int                   # Original token count
     compressed_tokens: int            # Compressed token count
     semantic_summary: str             # AI-compressed summary (~500 tokens)
-    key_facts: List[str]              # Extracted facts as bullets
-    related_files: List[str]          # File references
+    key_facts: list[str]              # Extracted facts as bullets
+    related_files: list[str]          # File references
     raw_content_hash: str             # Hash of original content (for dedup)
 
     def to_dict(self) -> dict:
@@ -164,7 +164,7 @@ class ObservationIndex:
     type: str                         # observation_type
     title: str                        # First 80 chars of summary
     token_count: int                  # Original token count
-    concepts: List[str]               # Top 3 concepts
+    concepts: list[str]               # Top 3 concepts
 
 
 # ============================================================================
@@ -212,7 +212,7 @@ class ObservationDB:
     END;
     """
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         self.db_path = db_path or OBSERVATIONS_DB
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
@@ -259,7 +259,7 @@ class ObservationDB:
         finally:
             conn.close()
 
-    def get(self, obs_id: str) -> Optional[CompressedObservation]:
+    def get(self, obs_id: str) -> CompressedObservation | None:
         """Retrieve an observation by ID."""
         conn = sqlite3.connect(str(self.db_path))
         try:
@@ -272,7 +272,7 @@ class ObservationDB:
         finally:
             conn.close()
 
-    def get_by_session(self, session_id: str) -> List[CompressedObservation]:
+    def get_by_session(self, session_id: str) -> list[CompressedObservation]:
         """Get all observations for a session."""
         conn = sqlite3.connect(str(self.db_path))
         try:
@@ -285,7 +285,7 @@ class ObservationDB:
         finally:
             conn.close()
 
-    def get_before(self, timestamp: datetime, limit: int = RECENT_CONTEXT_LIMIT) -> List[CompressedObservation]:
+    def get_before(self, timestamp: datetime, limit: int = RECENT_CONTEXT_LIMIT) -> list[CompressedObservation]:
         """Get observations before a timestamp."""
         conn = sqlite3.connect(str(self.db_path))
         try:
@@ -300,7 +300,7 @@ class ObservationDB:
         finally:
             conn.close()
 
-    def get_after(self, timestamp: datetime, limit: int = RECENT_CONTEXT_LIMIT) -> List[CompressedObservation]:
+    def get_after(self, timestamp: datetime, limit: int = RECENT_CONTEXT_LIMIT) -> list[CompressedObservation]:
         """Get observations after a timestamp."""
         conn = sqlite3.connect(str(self.db_path))
         try:
@@ -315,7 +315,7 @@ class ObservationDB:
         finally:
             conn.close()
 
-    def search_fts(self, query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> List[CompressedObservation]:
+    def search_fts(self, query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> list[CompressedObservation]:
         """Full-text search across summaries and facts."""
         conn = sqlite3.connect(str(self.db_path))
         try:
@@ -336,7 +336,7 @@ class ObservationDB:
         finally:
             conn.close()
 
-    def search_like(self, query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> List[CompressedObservation]:
+    def search_like(self, query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> list[CompressedObservation]:
         """Fallback LIKE search."""
         conn = sqlite3.connect(str(self.db_path))
         try:
@@ -352,7 +352,7 @@ class ObservationDB:
         finally:
             conn.close()
 
-    def get_recent(self, limit: int = DEFAULT_RECENT_LIMIT) -> List[CompressedObservation]:
+    def get_recent(self, limit: int = DEFAULT_RECENT_LIMIT) -> list[CompressedObservation]:
         """Get most recent observations."""
         conn = sqlite3.connect(str(self.db_path))
         try:
@@ -471,7 +471,7 @@ def hash_content(content: str) -> str:
 class ObservationCompressor:
     """Compresses tool outputs using Claude API."""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         self.client = None
         if ANTHROPIC_AVAILABLE and self.api_key:
@@ -545,7 +545,7 @@ class ObservationCompressor:
             print(f"[compressor] Compression failed: {e}", file=sys.stderr)
 
     def compress(self, tool_name: str, tool_output: str,
-                 session_id: str = "unknown") -> Optional[CompressedObservation]:
+                 session_id: str = "unknown") -> CompressedObservation | None:
         """Compress a tool output using Claude API."""
         if not self.client:
             return self._fallback_compress(tool_name, tool_output, session_id)
@@ -604,13 +604,13 @@ class ObservationCompressor:
             # Provide better error messages for common failures
             error_msg = str(e)
             if "rate_limit" in error_msg.lower() or "429" in error_msg:
-                print(f"[compressor] Rate limit exceeded, using fallback", file=sys.stderr)
+                print("[compressor] Rate limit exceeded, using fallback", file=sys.stderr)
             elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
-                print(f"[compressor] API timeout, using fallback", file=sys.stderr)
+                print("[compressor] API timeout, using fallback", file=sys.stderr)
             elif "connection" in error_msg.lower() or "network" in error_msg.lower():
-                print(f"[compressor] Network error, using fallback", file=sys.stderr)
+                print("[compressor] Network error, using fallback", file=sys.stderr)
             elif "401" in error_msg or "403" in error_msg or "invalid" in error_msg.lower():
-                print(f"[compressor] Authentication error, using fallback", file=sys.stderr)
+                print("[compressor] Authentication error, using fallback", file=sys.stderr)
             else:
                 print(f"[compressor] API error: {e}", file=sys.stderr)
             return self._fallback_compress(tool_name, tool_output, session_id)
@@ -655,10 +655,10 @@ class ProgressiveRetriever:
     Layer 3: Full observation details (~500-1000 tokens each)
     """
 
-    def __init__(self, db: Optional[ObservationDB] = None):
+    def __init__(self, db: ObservationDB | None = None):
         self.db = db or ObservationDB()
 
-    def layer1_search(self, query: str, limit: int = DEFAULT_INDEX_LIMIT) -> List[ObservationIndex]:
+    def layer1_search(self, query: str, limit: int = DEFAULT_INDEX_LIMIT) -> list[ObservationIndex]:
         """Layer 1: Return compact index entries only."""
         results = self.db.search_fts(query, limit=limit * 2)
 
@@ -671,7 +671,7 @@ class ProgressiveRetriever:
             concepts=r.concepts[:3],
         ) for r in results[:limit]]
 
-    def layer2_timeline(self, obs_id: str, window: int = TIMELINE_WINDOW_SIZE) -> List[CompressedObservation]:
+    def layer2_timeline(self, obs_id: str, window: int = TIMELINE_WINDOW_SIZE) -> list[CompressedObservation]:
         """Layer 2: Get timeline context around an observation."""
         obs = self.db.get(obs_id)
         if not obs:
@@ -681,7 +681,7 @@ class ProgressiveRetriever:
         after = self.db.get_after(obs.timestamp, limit=window)
         return before + [obs] + after
 
-    def layer3_full(self, obs_ids: List[str]) -> List[CompressedObservation]:
+    def layer3_full(self, obs_ids: list[str]) -> list[CompressedObservation]:
         """Layer 3: Get full observation details."""
         return [self.db.get(oid) for oid in obs_ids if self.db.get(oid)]
 
@@ -726,7 +726,7 @@ class ProgressiveRetriever:
 # ============================================================================
 
 # Global compressor instance
-_compressor: Optional[ObservationCompressor] = None
+_compressor: ObservationCompressor | None = None
 
 
 def get_compressor() -> ObservationCompressor:

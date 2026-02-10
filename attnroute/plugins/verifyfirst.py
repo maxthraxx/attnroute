@@ -5,11 +5,11 @@ Tracks files read during the session and injects policy reminders
 to prevent editing unread files. This addresses GitHub issue #23833
 where Claude implements speculative fixes without verifying root cause.
 """
-from pathlib import Path
-from typing import List, Optional, Tuple, Set
-from datetime import datetime
 import json
 import sys
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional, Set, Tuple
 
 from attnroute.plugins.base import AttnroutePlugin
 
@@ -42,7 +42,7 @@ class VerifyFirstPlugin(AttnroutePlugin):
         super().__init__()
         self._violations_file = self._state_dir / "verifyfirst_violations.jsonl"
 
-    def on_session_start(self, session_state: dict) -> Optional[str]:
+    def on_session_start(self, session_state: dict) -> str | None:
         """Reset tracking for new session."""
         session_id = session_state.get("session_id", "unknown")
 
@@ -57,7 +57,7 @@ class VerifyFirstPlugin(AttnroutePlugin):
 
         return "VerifyFirst: Active (read-before-write policy)"
 
-    def on_prompt_pre(self, prompt: str, session_state: dict) -> Tuple[str, bool]:
+    def on_prompt_pre(self, prompt: str, session_state: dict) -> tuple[str, bool]:
         """
         Check prompt for explicit file references.
 
@@ -109,7 +109,7 @@ class VerifyFirstPlugin(AttnroutePlugin):
 
         return "\n".join(policy_lines)
 
-    def on_stop(self, tool_calls: List[dict], session_state: dict) -> Optional[str]:
+    def on_stop(self, tool_calls: list[dict], session_state: dict) -> str | None:
         """
         Process tool calls to track reads and detect violations.
         """
@@ -117,9 +117,9 @@ class VerifyFirstPlugin(AttnroutePlugin):
             return None
 
         state = self.load_state()
-        files_read: Set[str] = set(state.get("files_read", []))
-        files_written: Set[str] = set(state.get("files_written", []))
-        violations: List[dict] = state.get("violations", [])
+        files_read: set[str] = set(state.get("files_read", []))
+        files_written: set[str] = set(state.get("files_written", []))
+        violations: list[dict] = state.get("violations", [])
 
         new_violations = []
 

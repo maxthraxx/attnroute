@@ -334,7 +334,7 @@ def main():
         try:
             output_path.write_text(output, encoding="utf-8")
             print(f"Report saved to: {output_path}")
-            print(f"Include this file when reporting issues.")
+            print("Include this file when reporting issues.")
         except PermissionError:
             print(f"Error: Permission denied writing to {output_path}", file=sys.stderr)
             print("Try a different location or run with elevated permissions.", file=sys.stderr)

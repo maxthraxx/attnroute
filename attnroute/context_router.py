@@ -22,11 +22,11 @@ Input: JSON from stdin {"prompt": "..."}
 Output: Tiered context to stdout
 """
 
-import sys
+import copy
 import io
 import json
 import os
-import copy
+import sys
 from pathlib import Path
 
 # Fix Windows encoding (cp1252 can't handle Unicode box-drawing/emoji chars)
@@ -34,17 +34,27 @@ if sys.stdout.encoding != 'utf-8':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 if sys.stderr.encoding != 'utf-8':
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
-from typing import Dict, List, Set, Tuple, Optional
-from datetime import datetime
 import re
+from datetime import datetime
+from typing import Dict, List, Optional, Set, Tuple
 
 # Try to import sibling modules (works both as package and standalone)
 try:
-    from attnroute.telemetry_lib import rotate_jsonl, get_session_id, load_project_overrides, estimate_tokens_from_chars
+    from attnroute.telemetry_lib import (
+        estimate_tokens_from_chars,
+        get_session_id,
+        load_project_overrides,
+        rotate_jsonl,
+    )
     TELEMETRY_LIB_AVAILABLE = True
 except ImportError:
     try:
-        from telemetry_lib import rotate_jsonl, get_session_id, load_project_overrides, estimate_tokens_from_chars
+        from telemetry_lib import (
+            estimate_tokens_from_chars,
+            get_session_id,
+            load_project_overrides,
+            rotate_jsonl,
+        )
         TELEMETRY_LIB_AVAILABLE = True
     except ImportError:
         TELEMETRY_LIB_AVAILABLE = False
@@ -75,12 +85,12 @@ except ImportError:
 
 # Try to import search index (optional semantic search)
 try:
-    from attnroute.indexer import SearchIndex, BM25_AVAILABLE
+    from attnroute.indexer import BM25_AVAILABLE, SearchIndex
     _search_index = SearchIndex()
     SEARCH_AVAILABLE = BM25_AVAILABLE  # Only truly available if BM25 is installed
 except ImportError:
     try:
-        from indexer import SearchIndex, BM25_AVAILABLE
+        from indexer import BM25_AVAILABLE, SearchIndex
         _search_index = SearchIndex()
         SEARCH_AVAILABLE = BM25_AVAILABLE
     except ImportError:
@@ -214,7 +224,7 @@ def resolve_docs_root() -> Path:
             print(f"  Found {len(md_files)} .md files", file=sys.stderr)
             return global_claude
         else:
-            print(f"[attnroute] WARN:Global ~/.claude/ exists but has no .md files", file=sys.stderr)
+            print("[attnroute] WARN:Global ~/.claude/ exists but has no .md files", file=sys.stderr)
 
     # Priority 4: Fail with helpful error
     raise FileNotFoundError(
@@ -318,7 +328,7 @@ PINNED_FILES = []
 # Load keywords and co-activation from external config if available
 # ============================================================================
 
-def load_keyword_config() -> Tuple[Dict[str, List[str]], Dict[str, List[str]], List[str]]:
+def load_keyword_config() -> tuple[dict[str, list[str]], dict[str, list[str]], list[str]]:
     """
     Load keywords, co-activation graph, and pinned files from keywords.json.
     Falls back to hardcoded defaults if config doesn't exist or fails to parse.
@@ -371,7 +381,7 @@ def load_keyword_config() -> Tuple[Dict[str, List[str]], Dict[str, List[str]], L
 # attnroute is a generic keyword→file routing engine.
 # All domain-specific keywords belong in keywords.json config files.
 # These structural defaults only match common doc organization patterns.
-_DEFAULT_KEYWORDS: Dict[str, List[str]] = {}
+_DEFAULT_KEYWORDS: dict[str, list[str]] = {}
 
 # ============================================================================
 # CO-ACTIVATION GRAPH
@@ -379,7 +389,7 @@ _DEFAULT_KEYWORDS: Dict[str, List[str]] = {}
 # ============================================================================
 
 # Domain-agnostic: empty by default. All co-activation belongs in keywords.json.
-_DEFAULT_CO_ACTIVATION: Dict[str, List[str]] = {}
+_DEFAULT_CO_ACTIVATION: dict[str, list[str]] = {}
 
 # Load actual configuration (from keywords.json or fallback to defaults)
 KEYWORDS, CO_ACTIVATION, _LOADED_PINNED = load_keyword_config()
@@ -431,7 +441,7 @@ def build_coactivation_graph(co_act: dict):
     _coactivation_graph = G
     return G
 
-def get_transitive_coactivation(activated_files: Set[str], max_hops: int = 2) -> Dict[str, float]:
+def get_transitive_coactivation(activated_files: set[str], max_hops: int = 2) -> dict[str, float]:
     """
     Get transitively co-activated files up to max_hops away.
 
@@ -467,14 +477,14 @@ def get_transitive_coactivation(activated_files: Set[str], max_hops: int = 2) ->
 _coactivation_graph = build_coactivation_graph(CO_ACTIVATION) if NETWORKX_AVAILABLE else None
 
 # Keyword weights placeholder (learner.boost_scores() handles learned associations instead)
-_KEYWORD_WEIGHTS: Dict[str, float] = {}
+_KEYWORD_WEIGHTS: dict[str, float] = {}
 
 # ============================================================================
 # COMPILED KEYWORD REGEX (performance optimization)
 # Pre-compile one regex per file path. Replaces ~200 regex ops/turn with ~24.
 # ============================================================================
 
-def _build_compiled_keywords(keywords: Dict[str, List[str]]) -> Dict[str, re.Pattern]:
+def _build_compiled_keywords(keywords: dict[str, list[str]]) -> dict[str, re.Pattern]:
     """Build compiled regex for each file's keywords."""
     compiled = {}
     for path, kw_list in keywords.items():
@@ -496,7 +506,7 @@ def _build_compiled_keywords(keywords: Dict[str, List[str]]) -> Dict[str, re.Pat
             pass
     return compiled
 
-_COMPILED_KEYWORDS: Dict[str, re.Pattern] = _build_compiled_keywords(KEYWORDS)
+_COMPILED_KEYWORDS: dict[str, re.Pattern] = _build_compiled_keywords(KEYWORDS)
 
 # ============================================================================
 # STATE MANAGEMENT
@@ -517,7 +527,7 @@ def load_state(state_file: Path) -> dict:
             return json.loads(state_file.read_text())
         except json.JSONDecodeError:
             pass
-    
+
     # Initialize fresh state
     return {
         "scores": {path: 0.0 for path in KEYWORDS},
@@ -560,7 +570,7 @@ def keyword_matches(keyword: str, text: str) -> bool:
     return keyword in text
 
 
-def _keyword_activate(state: dict, prompt_lower: str, directly_activated: Set[str]):
+def _keyword_activate(state: dict, prompt_lower: str, directly_activated: set[str]):
     """Keyword-based activation using compiled regex (fallback path)."""
     for path in KEYWORDS:
         if path in _COMPILED_KEYWORDS:
@@ -576,7 +586,7 @@ def _keyword_activate(state: dict, prompt_lower: str, directly_activated: Set[st
                 directly_activated.add(path)
 
 
-def update_attention(state: dict, prompt: str) -> Tuple[dict, Set[str]]:
+def update_attention(state: dict, prompt: str) -> tuple[dict, set[str]]:
     """
     Update attention scores based on prompt content.
     Returns updated state and set of directly activated files.
@@ -595,7 +605,7 @@ def update_attention(state: dict, prompt: str) -> Tuple[dict, Set[str]]:
         ensure_search_index_built()
 
     prompt_lower = prompt.lower()
-    directly_activated: Set[str] = set()
+    directly_activated: set[str] = set()
 
     # Ensure consecutive_turns dict exists (backwards compat with old state files)
     if "consecutive_turns" not in state:
@@ -747,7 +757,7 @@ def compress_warm(content: str, max_chars: int = WARM_COMPRESSION_MAX_CHARS) -> 
     return compressed
 
 
-def extract_warm_header(file_path: str, docs_root: Path, use_compression: bool = True) -> Optional[str]:
+def extract_warm_header(file_path: str, docs_root: Path, use_compression: bool = True) -> str | None:
     """
     Extract structured header for warm context.
 
@@ -778,12 +788,12 @@ def extract_warm_header(file_path: str, docs_root: Path, use_compression: bool =
         return f"[Error reading {file_path}: {e}]"
 
 
-def get_full_content(file_path: str, docs_root: Path) -> Optional[str]:
+def get_full_content(file_path: str, docs_root: Path) -> str | None:
     """Get full file content for hot context."""
     full_path = docs_root / file_path
     if not full_path.exists():
         return None
-    
+
     try:
         return full_path.read_text()
     except Exception as e:
@@ -803,7 +813,7 @@ def get_tier(score: float) -> str:
     return "COLD"
 
 
-def _cache_sort_key(item: Tuple[str, float], state: dict) -> Tuple[int, int, float]:
+def _cache_sort_key(item: tuple[str, float], state: dict) -> tuple[int, int, float]:
     """
     Sort key for prompt cache stability.
 
@@ -820,7 +830,7 @@ def _cache_sort_key(item: Tuple[str, float], state: dict) -> Tuple[int, int, flo
     return (-is_pinned, -streak, -score)
 
 
-def build_context_output(state: dict, docs_root: Path) -> Tuple[str, dict]:
+def build_context_output(state: dict, docs_root: Path) -> tuple[str, dict]:
     """
     Build tiered context output respecting limits.
 
@@ -837,7 +847,7 @@ def build_context_output(state: dict, docs_root: Path) -> Tuple[str, dict]:
         key=lambda x: x[1],
         reverse=True
     )
-    
+
     # Separate files into tiers first, then sort within each tier
     hot_candidates = []
     warm_candidates = []
@@ -976,7 +986,7 @@ def compute_transitions(prev_state: dict, curr_state: dict) -> dict:
     return transitions
 
 
-def append_history(state: dict, prev_state: dict, activated: Set[str], prompt: str, stats: dict):
+def append_history(state: dict, prev_state: dict, activated: set[str], prompt: str, stats: dict):
     """Append structured entry to history log."""
 
     # Extract keywords from prompt (simple: first 8 significant words)
@@ -1026,7 +1036,7 @@ def strip_notifications(prompt: str) -> tuple:
 
 
 # Cache for router overrides (avoid disk read every turn)
-_OVERRIDES_CACHE: Dict = {"params": {}, "mtime": 0.0, "path": None}
+_OVERRIDES_CACHE: dict = {"params": {}, "mtime": 0.0, "path": None}
 
 def load_telemetry_overrides():
     """Load auto-tuned parameter overrides from telemetry system (per-project aware).
@@ -1245,7 +1255,7 @@ def main():
 
     # Save state for next turn
     save_state(state_file, state)
-    
+
     # Compact debug log (one-liner per turn, with size rotation)
     log_file = Path.home() / ".claude" / "context_injection.log"
     try:

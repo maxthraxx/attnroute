@@ -1,7 +1,8 @@
 """Core functionality tests for attnroute."""
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 class TestTokenEstimation:
@@ -110,7 +111,7 @@ class TestPredictor:
 
     def test_predictor_empty_history(self):
         """Predictor handles empty history gracefully."""
-        from attnroute.predictor import predict_files_v5, PredictorModelV5
+        from attnroute.predictor import PredictorModelV5, predict_files_v5
         model = PredictorModelV5()
         result = predict_files_v5("test prompt", model, [])
         assert isinstance(result, list)
@@ -121,7 +122,7 @@ class TestDiagnostic:
 
     def test_diagnostic_import(self):
         """Diagnostic module can be imported."""
-        from attnroute.diagnostic import generate_report, format_report_text
+        from attnroute.diagnostic import format_report_text, generate_report
         assert generate_report is not None
         assert format_report_text is not None
 
@@ -143,7 +144,7 @@ class TestCompressor:
     def test_compressor_import(self):
         """Compressor can be imported."""
         try:
-            from attnroute.compressor import ObservationCompressor, ANTHROPIC_AVAILABLE
+            from attnroute.compressor import ANTHROPIC_AVAILABLE, ObservationCompressor
             assert ObservationCompressor is not None
             assert isinstance(ANTHROPIC_AVAILABLE, bool)
         except ImportError:

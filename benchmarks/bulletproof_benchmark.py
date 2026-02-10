@@ -14,19 +14,19 @@ This benchmark is designed to be IMPENETRABLE to criticism:
 Run: python bulletproof_benchmark.py --full
 """
 
-import sys
-import os
-import time
-import json
-import subprocess
-import tempfile
-import statistics
 import hashlib
-from pathlib import Path
-from datetime import datetime
-from typing import Dict, List, Tuple, Optional
-from dataclasses import dataclass, asdict
+import json
+import os
 import shutil
+import statistics
+import subprocess
+import sys
+import tempfile
+import time
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -90,7 +90,7 @@ class TokenCounter:
         except ImportError:
             pass
 
-    def count(self, text: str) -> Dict[str, int]:
+    def count(self, text: str) -> dict[str, int]:
         """Count tokens with all available tokenizers."""
         results = {}
 
@@ -141,11 +141,11 @@ class BenchmarkResult:
     repo_chars: int
 
     # Token counts (multiple tokenizers)
-    baseline_tokens: Dict[str, int]
-    output_tokens: Dict[str, int]
+    baseline_tokens: dict[str, int]
+    output_tokens: dict[str, int]
 
     # Statistics over multiple runs
-    runs: List[BenchmarkRun]
+    runs: list[BenchmarkRun]
     reduction_mean: float
     reduction_std: float
     reduction_ci_lower: float
@@ -169,14 +169,14 @@ class CompetitorResult:
     output_tokens: int
     time_ms: float
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
 
 # =============================================================================
 # REPO MANAGEMENT
 # =============================================================================
 
-def clone_repo(url: str, target_dir: Path, commit: str = None) -> Tuple[bool, str]:
+def clone_repo(url: str, target_dir: Path, commit: str = None) -> tuple[bool, str]:
     """Clone a repo and optionally checkout specific commit."""
     try:
         # Clone
@@ -199,7 +199,7 @@ def clone_repo(url: str, target_dir: Path, commit: str = None) -> Tuple[bool, st
         return False, str(e)
 
 
-def measure_repo_stats(repo_path: Path, extensions: List[str]) -> Dict:
+def measure_repo_stats(repo_path: Path, extensions: list[str]) -> dict:
     """Measure repository statistics."""
     total_files = 0
     total_lines = 0
@@ -237,7 +237,7 @@ def measure_repo_stats(repo_path: Path, extensions: List[str]) -> Dict:
 # =============================================================================
 
 def benchmark_attnroute(repo_path: Path, token_counter: TokenCounter,
-                         num_runs: int = 5) -> Tuple[Dict, List[BenchmarkRun]]:
+                         num_runs: int = 5) -> tuple[dict, list[BenchmarkRun]]:
     """Run attnroute benchmark with multiple runs for statistics."""
     try:
         from attnroute.repo_map import RepoMapper
@@ -329,7 +329,7 @@ def benchmark_attnroute(repo_path: Path, token_counter: TokenCounter,
 # AIDER BENCHMARK (HEAD-TO-HEAD)
 # =============================================================================
 
-def check_aider_installed() -> Tuple[bool, str]:
+def check_aider_installed() -> tuple[bool, str]:
     """Check if Aider is installed and get version."""
     try:
         # Try py -m aider first (works on Windows)
@@ -425,7 +425,7 @@ def benchmark_aider(repo_path: Path, token_counter: TokenCounter) -> CompetitorR
 # CONFIDENCE INTERVALS
 # =============================================================================
 
-def calculate_ci(data: List[float], confidence: float = 0.95) -> Tuple[float, float]:
+def calculate_ci(data: list[float], confidence: float = 0.95) -> tuple[float, float]:
     """Calculate confidence interval using t-distribution."""
     n = len(data)
     if n < 2:
@@ -453,7 +453,7 @@ def calculate_ci(data: List[float], confidence: float = 0.95) -> Tuple[float, fl
 # =============================================================================
 
 def run_bulletproof_benchmark(use_public_repos: bool = False,
-                               local_paths: List[str] = None,
+                               local_paths: list[str] = None,
                                include_aider: bool = True):
     """Run the bulletproof benchmark suite."""
 
@@ -566,7 +566,7 @@ def run_bulletproof_benchmark(use_public_repos: bool = False,
                     'time': aider_result.time_ms,
                 })
             else:
-                print(f"    Status:              FAILED")
+                print("    Status:              FAILED")
                 print(f"    Error:               {aider_result.error}")
 
         print()
@@ -610,10 +610,10 @@ def run_bulletproof_benchmark(use_public_repos: bool = False,
     print("=" * 80)
     print("METHODOLOGY (for peer review)")
     print("=" * 80)
-    print("""
+    print(f"""
 REPRODUCIBILITY CHECKLIST:
   [x] Token counting: tiktoken cl100k_base (same family as Claude)
-  [x] Multiple runs: {num_runs} runs per repo for statistical validity
+  [x] Multiple runs: {NUM_RUNS} runs per repo for statistical validity
   [x] Confidence intervals: 95% CI using t-distribution
   [x] Timing: Full operation (index + map generation)
   [x] Baseline: Actual source file content, not estimates
@@ -643,7 +643,7 @@ TO REPRODUCE:
   3. python bulletproof_benchmark.py
 
 COMMIT HASH: Run 'git rev-parse HEAD' in each repo for exact reproducibility
-""".format(num_runs=NUM_RUNS))
+""")
 
     # Save results to JSON for verification
     output_file = Path(__file__).parent / "benchmark_results.json"

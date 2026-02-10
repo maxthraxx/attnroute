@@ -47,7 +47,7 @@ if GRAPH_AVAILABLE:
             GRAPH_AVAILABLE = False
 
 
-def get_graph_context(query: str, repo_path: str = ".", token_budget: int = 1000) -> Optional[str]:
+def get_graph_context(query: str, repo_path: str = ".", token_budget: int = 1000) -> str | None:
     """
     Get graph-based context for a query.
 

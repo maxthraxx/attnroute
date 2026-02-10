@@ -7,12 +7,12 @@ trend sparklines, file leaderboards, and optimization history.
 
 Usage: attnroute-report [--days 7] [--project NAME] [--cost] [--sessions] [--trend] [--all]
 """
+import argparse
 import json
 import sys
-import argparse
-from pathlib import Path
-from datetime import datetime, timedelta
 from collections import Counter, defaultdict
+from datetime import datetime, timedelta
+from pathlib import Path
 
 try:
     from attnroute import __version__ as VERSION
@@ -21,16 +21,26 @@ except ImportError:
 
 try:
     from attnroute.telemetry_lib import (
-        windows_utf8_io, load_turns, load_stats_cache, load_router_overrides,
-        TURNS_FILE, OPTIMIZATION_LOG_FILE, estimate_tokens_from_chars
+        OPTIMIZATION_LOG_FILE,
+        TURNS_FILE,
+        estimate_tokens_from_chars,
+        load_router_overrides,
+        load_stats_cache,
+        load_turns,
+        windows_utf8_io,
     )
     windows_utf8_io()
 except ImportError:
     try:
         sys.path.insert(0, str(Path(__file__).parent))
         from telemetry_lib import (
-            windows_utf8_io, load_turns, load_stats_cache, load_router_overrides,
-            TURNS_FILE, OPTIMIZATION_LOG_FILE, estimate_tokens_from_chars
+            OPTIMIZATION_LOG_FILE,
+            TURNS_FILE,
+            estimate_tokens_from_chars,
+            load_router_overrides,
+            load_stats_cache,
+            load_turns,
+            windows_utf8_io,
         )
         windows_utf8_io()
     except ImportError:
@@ -257,7 +267,7 @@ def report_optimization_history():
 
     try:
         entries = []
-        with open(OPTIMIZATION_LOG_FILE, "r", encoding="utf-8") as f:
+        with open(OPTIMIZATION_LOG_FILE, encoding="utf-8") as f:
             for line in f:
                 try:
                     entries.append(json.loads(line))
@@ -365,8 +375,8 @@ def report_cost(stats: dict, days: int):
     # Context injection savings = avoided tokens * input price
     # Conservative: if we save 30% of context injection on average
     print()
-    print(f"  Note: attnroute saves tokens by injecting only relevant context.")
-    print(f"  Without attnroute, all .claude/*.md files would be injected every turn.")
+    print("  Note: attnroute saves tokens by injecting only relevant context.")
+    print("  Without attnroute, all .claude/*.md files would be injected every turn.")
     print()
 
 
@@ -502,7 +512,7 @@ def report_trend(turns: list):
     if OPTIMIZATION_LOG_FILE.exists():
         try:
             opt_entries = []
-            with open(OPTIMIZATION_LOG_FILE, "r", encoding="utf-8") as f:
+            with open(OPTIMIZATION_LOG_FILE, encoding="utf-8") as f:
                 for line in f:
                     try:
                         opt_entries.append(json.loads(line))

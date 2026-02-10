@@ -7,10 +7,10 @@ consumption rates, hitting limits unexpectedly.
 Tracks token usage patterns and predicts when you'll hit your limit,
 giving early warnings to pace your work.
 """
-from pathlib import Path
-from typing import List, Optional, Tuple, Dict
-from datetime import datetime, timedelta
 import json
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 from attnroute.plugins.base import AttnroutePlugin
 
@@ -52,7 +52,7 @@ class BurnRatePlugin(AttnroutePlugin):
         super().__init__()
         self._history_file = self._state_dir / "burnrate_history.jsonl"
 
-    def on_session_start(self, session_state: dict) -> Optional[str]:
+    def on_session_start(self, session_state: dict) -> str | None:
         """Initialize tracking for new session."""
         # Read current stats to establish baseline
         baseline = self._read_stats_cache()
@@ -72,12 +72,12 @@ class BurnRatePlugin(AttnroutePlugin):
         limit = self.PLAN_LIMITS.get(plan, 150_000)
 
         if limit == float("inf"):
-            return f"BurnRate: Active (API mode - per-minute limits)"
+            return "BurnRate: Active (API mode - per-minute limits)"
 
         pct = (used / limit * 100) if limit else 0
         return f"BurnRate: Active ({plan} plan, {pct:.0f}% used this window)"
 
-    def on_prompt_pre(self, prompt: str, session_state: dict) -> Tuple[str, bool]:
+    def on_prompt_pre(self, prompt: str, session_state: dict) -> tuple[str, bool]:
         """Pass through - we don't modify prompts."""
         return prompt, True
 
@@ -142,7 +142,7 @@ class BurnRatePlugin(AttnroutePlugin):
 
         return "\n".join(lines)
 
-    def on_stop(self, tool_calls: List[dict], session_state: dict) -> Optional[str]:
+    def on_stop(self, tool_calls: list[dict], session_state: dict) -> str | None:
         """
         Record final token count for this turn.
         """
@@ -212,7 +212,7 @@ class BurnRatePlugin(AttnroutePlugin):
         samples = samples[-self.SAMPLE_WINDOW:]
         state["samples"] = samples
 
-    def _calculate_burn_rate(self, state: dict, stats: dict) -> Optional[dict]:
+    def _calculate_burn_rate(self, state: dict, stats: dict) -> dict | None:
         """Calculate current burn rate and predict exhaustion."""
         samples = state.get("samples", [])
 

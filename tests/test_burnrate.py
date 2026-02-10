@@ -1,8 +1,9 @@
 """Tests for BurnRate plugin."""
-import pytest
-from pathlib import Path
 import json
 from datetime import datetime, timedelta
+from pathlib import Path
+
+import pytest
 
 
 class TestBurnRate:
@@ -10,8 +11,8 @@ class TestBurnRate:
 
     @pytest.fixture
     def plugin(self, tmp_path, monkeypatch):
-        from attnroute.plugins.burnrate import BurnRatePlugin
         from attnroute.plugins.base import AttnroutePlugin
+        from attnroute.plugins.burnrate import BurnRatePlugin
 
         monkeypatch.setattr(AttnroutePlugin, "_state_dir", tmp_path)
 

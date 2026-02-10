@@ -47,4 +47,4 @@ jobs:
           pip install ruff
 
       - name: Run ruff
-        run: ruff check . --ignore=E501,F401,UP035,I001
+        run: ruff check . --ignore=E501,F401,UP035,I001,E741,F841

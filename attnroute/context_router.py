@@ -38,65 +38,65 @@ import re
 from datetime import datetime
 from typing import Dict, List, Optional, Set, Tuple
 
-# Try to import sibling modules (works both as package and standalone)
-try:
-    from attnroute.telemetry_lib import (
-        estimate_tokens_from_chars,
-        get_session_id,
-        load_project_overrides,
-        rotate_jsonl,
-    )
-    TELEMETRY_LIB_AVAILABLE = True
-except ImportError:
-    try:
-        from telemetry_lib import (
-            estimate_tokens_from_chars,
-            get_session_id,
-            load_project_overrides,
-            rotate_jsonl,
-        )
-        TELEMETRY_LIB_AVAILABLE = True
-    except ImportError:
-        TELEMETRY_LIB_AVAILABLE = False
+# Import utilities for cleaner import handling
+from attnroute.compat import LazyLoader, try_import
 
-# Try to import plugin system
-try:
-    from attnroute.plugins import get_plugins
-    PLUGINS_AVAILABLE = True
-except ImportError:
-    try:
-        from plugins import get_plugins
-        PLUGINS_AVAILABLE = True
-    except ImportError:
-        PLUGINS_AVAILABLE = False
+# Import telemetry lib
+_telemetry_imports, TELEMETRY_LIB_AVAILABLE = try_import(
+    "attnroute.telemetry_lib", "telemetry_lib",
+    ["estimate_tokens_from_chars", "get_session_id", "load_project_overrides", "rotate_jsonl"]
+)
+if TELEMETRY_LIB_AVAILABLE:
+    estimate_tokens_from_chars = _telemetry_imports["estimate_tokens_from_chars"]
+    get_session_id = _telemetry_imports["get_session_id"]
+    load_project_overrides = _telemetry_imports["load_project_overrides"]
+    rotate_jsonl = _telemetry_imports["rotate_jsonl"]
 
-try:
-    from attnroute.learner import Learner, auto_extract_keywords
-    _learner = Learner()
+# Import plugin system
+_plugin_imports, PLUGINS_AVAILABLE = try_import(
+    "attnroute.plugins", "plugins", ["get_plugins"]
+)
+if PLUGINS_AVAILABLE:
+    get_plugins = _plugin_imports["get_plugins"]
+
+# Import learner with lazy initialization (avoids side effects at import time)
+_learner_imports, _LEARNER_IMPORTABLE = try_import(
+    "attnroute.learner", "learner", ["Learner", "auto_extract_keywords"]
+)
+if _LEARNER_IMPORTABLE:
+    Learner = _learner_imports["Learner"]
+    auto_extract_keywords = _learner_imports["auto_extract_keywords"]
+    _learner_loader = LazyLoader(lambda: Learner())
     LEARNER_AVAILABLE = True
-except ImportError:
-    try:
-        from learner import Learner, auto_extract_keywords
-        _learner = Learner()
-        LEARNER_AVAILABLE = True
-    except ImportError:
-        _learner = None
-        LEARNER_AVAILABLE = False
+else:
+    _learner_loader = None
+    LEARNER_AVAILABLE = False
 
-# Try to import search index (optional semantic search)
-try:
-    from attnroute.indexer import BM25_AVAILABLE, SearchIndex
-    _search_index = SearchIndex()
-    SEARCH_AVAILABLE = BM25_AVAILABLE  # Only truly available if BM25 is installed
-except ImportError:
-    try:
-        from indexer import BM25_AVAILABLE, SearchIndex
-        _search_index = SearchIndex()
-        SEARCH_AVAILABLE = BM25_AVAILABLE
-    except ImportError:
-        _search_index = None
-        SEARCH_AVAILABLE = False
-        BM25_AVAILABLE = False
+def get_learner():
+    """Get the lazily-initialized Learner instance."""
+    if _learner_loader is None:
+        return None
+    return _learner_loader.get()
+
+# Import search index with lazy initialization
+_indexer_imports, _INDEXER_IMPORTABLE = try_import(
+    "attnroute.indexer", "indexer", ["SearchIndex", "BM25_AVAILABLE"]
+)
+if _INDEXER_IMPORTABLE:
+    SearchIndex = _indexer_imports["SearchIndex"]
+    BM25_AVAILABLE = _indexer_imports["BM25_AVAILABLE"]
+    _search_loader = LazyLoader(lambda: SearchIndex())
+    SEARCH_AVAILABLE = BM25_AVAILABLE
+else:
+    _search_loader = None
+    SEARCH_AVAILABLE = False
+    BM25_AVAILABLE = False
+
+def get_search_index():
+    """Get the lazily-initialized SearchIndex instance."""
+    if _search_loader is None:
+        return None
+    return _search_loader.get()
 
 def ensure_search_index_built():
     """Lazily build or update the search index if needed."""
@@ -105,12 +105,12 @@ def ensure_search_index_built():
         return
 
     try:
-        status = _search_index.status()
+        status = get_search_index().status()
         if status.get("indexed_documents", 0) == 0:
             # Index is empty - build it
             docs_root = resolve_docs_root()
-            _search_index.build(docs_root)
-            print(f"[attnroute] Built search index with {_search_index.status()['indexed_documents']} docs", file=sys.stderr)
+            get_search_index().build(docs_root)
+            print(f"[attnroute] Built search index with {get_search_index().status()['indexed_documents']} docs", file=sys.stderr)
     except Exception as e:
         print(f"[attnroute] Search index build failed: {e}", file=sys.stderr)
 
@@ -417,7 +417,7 @@ CO_ACTIVATION = build_bidirectional_coactivation(CO_ACTIVATION)
 
 # Merge learned co-activation from the intelligence engine
 if LEARNER_AVAILABLE:
-    _learned_coact = _learner.get_learned_coactivation()
+    _learned_coact = get_learner().get_learned_coactivation()
     for source, targets in _learned_coact.items():
         if source not in CO_ACTIVATION:
             CO_ACTIVATION[source] = []
@@ -552,7 +552,7 @@ def get_decay_rate(file_path: str) -> float:
     """Get decay rate for a file. Prefers learned rhythm, then category, then default."""
     # Priority 1: Learned per-file rhythm from the intelligence engine
     if LEARNER_AVAILABLE:
-        learned = _learner.get_file_decay(file_path)
+        learned = get_learner().get_file_decay(file_path)
         if learned is not None:
             return learned
 
@@ -620,7 +620,7 @@ def update_attention(state: dict, prompt: str) -> tuple[dict, set[str]]:
     # Use semantic search with minimum score threshold for smarter selection
     if SEARCH_AVAILABLE and _search_index:
         try:
-            results = _search_index.query(prompt, top_k=SEMANTIC_SEARCH_TOP_K)
+            results = get_search_index().query(prompt, top_k=SEMANTIC_SEARCH_TOP_K)
             for path, relevance in results:
                 # Only activate if above minimum semantic score
                 if path in state["scores"] and relevance >= MIN_SEMANTIC_SCORE:
@@ -637,7 +637,7 @@ def update_attention(state: dict, prompt: str) -> tuple[dict, set[str]]:
 
     # Phase 2.5: Learned association boost (from intelligence engine)
     if LEARNER_AVAILABLE:
-        state["scores"] = _learner.boost_scores(prompt, state["scores"])
+        state["scores"] = get_learner().boost_scores(prompt, state["scores"])
 
     # Phase 3: Co-activation boost (direct neighbors)
     for activated_path in directly_activated:

@@ -5,6 +5,20 @@ All notable changes to attnroute will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-02-10
+
+### Added
+- `attnroute/compat.py` - Centralized import utilities (`try_import`, `LazyLoader`)
+- Prediction accuracy metrics in README (Precision ~45%, Recall ~60%, F1 0.35-0.42)
+
+### Changed
+- Lazy initialization for `Learner` and `SearchIndex` (no side effects at import time)
+- Replaced dual import boilerplate with `try_import()` utility in context_router.py
+- Updated predictor.py docstring with honest benchmark metrics
+
+### Fixed
+- Module-level instantiation side effects that could affect testing
+
 ## [0.5.2] - 2026-02-10
 
 ### Added
@@ -72,6 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `attnroute init` and `attnroute status` commands
 - Zero required dependencies
 
+[0.5.3]: https://github.com/jeranaias/attnroute/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/jeranaias/attnroute/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/jeranaias/attnroute/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/jeranaias/attnroute/compare/v0.4.0...v0.5.0

@@ -509,6 +509,24 @@ attnroute ██                                                        2,072
           0                                                      100,000
 ```
 
+### Prediction Accuracy
+
+attnroute uses a dual-mode predictor to guess which files you'll need:
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| **Precision** | ~45% | Of predicted files, 45% were actually used |
+| **Recall** | ~60% | Of files used, 60% were predicted |
+| **F1 Score** | 0.35-0.42 | Varies by project complexity |
+
+> **Why F1 matters less than token reduction**: Even 35% F1 dramatically reduces context because:
+> 1. Predicted files are ranked by confidence
+> 2. Only top-k files are injected (HOT/WARM tiers)
+> 3. Unpredicted files can still be Read by Claude on demand
+> 4. The goal is reducing *unnecessary* context, not perfect prediction
+
+The predictor improves over time as it learns your usage patterns.
+
 ### Run Your Own Benchmark
 
 ```bash
@@ -531,7 +549,7 @@ attnroute benchmark
 
 | Approach | Token Reduction | Setup | Maintenance |
 |----------|-----------------|-------|-------------|
-| **attnroute** | 98%+ | 30 seconds | Zero |
+| **attnroute** | 90%+ | 30 seconds | Zero |
 | Manual file picking | 90%+ | Per-query | High |
 | .claudeignore | 50-70% | Minutes | Medium |
 | No optimization | 0% | None | None |

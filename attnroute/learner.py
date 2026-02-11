@@ -30,31 +30,25 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
-try:
-    from attnroute.telemetry_lib import (
-        LEARNED_STATE_FILE,
-        TELEMETRY_DIR,
-        ensure_telemetry_dir,
-        load_turns,
-        windows_utf8_io,
-    )
+from attnroute.compat import try_import
+
+# Import telemetry lib
+_telem_imports, TELEMETRY_LIB_AVAILABLE = try_import(
+    "attnroute.telemetry_lib", "telemetry_lib",
+    ["LEARNED_STATE_FILE", "TELEMETRY_DIR", "ensure_telemetry_dir", "load_turns", "windows_utf8_io"]
+)
+if TELEMETRY_LIB_AVAILABLE:
+    LEARNED_STATE_FILE = _telem_imports["LEARNED_STATE_FILE"]
+    TELEMETRY_DIR = _telem_imports["TELEMETRY_DIR"]
+    ensure_telemetry_dir = _telem_imports["ensure_telemetry_dir"]
+    load_turns = _telem_imports["load_turns"]
+    windows_utf8_io = _telem_imports["windows_utf8_io"]
     windows_utf8_io()
-except ImportError:
-    try:
-        sys.path.insert(0, str(Path(__file__).parent))
-        from telemetry_lib import (
-            LEARNED_STATE_FILE,
-            TELEMETRY_DIR,
-            ensure_telemetry_dir,
-            load_turns,
-            windows_utf8_io,
-        )
-        windows_utf8_io()
-    except ImportError:
-        LEARNED_STATE_FILE = Path.home() / ".claude" / "telemetry" / "learned_state.json"
-        TELEMETRY_DIR = Path.home() / ".claude" / "telemetry"
-        def ensure_telemetry_dir(): TELEMETRY_DIR.mkdir(parents=True, exist_ok=True)
-        def load_turns(n=25, project=None): return []
+else:
+    LEARNED_STATE_FILE = Path.home() / ".claude" / "telemetry" / "learned_state.json"
+    TELEMETRY_DIR = Path.home() / ".claude" / "telemetry"
+    def ensure_telemetry_dir(): TELEMETRY_DIR.mkdir(parents=True, exist_ok=True)
+    def load_turns(n=25, project=None): return []
 
 
 # ============================================================================
@@ -846,6 +840,74 @@ class Learner:
         return {f: round(s * SESSION_WARMUP_FACTOR, 3) for f, s in memory.items()}
 
     # ---- Reporting ----
+
+    def merge_ingested_state(self, ingested: dict) -> None:
+        """
+        Merge transcript-ingested state into existing learned state.
+
+        Rules:
+        - prompt_file_affinity: max(existing, ingested) per word-file pair
+        - coactivation_learned: union of related file lists
+        - file_rhythm: prefer existing if present, else use ingested
+        - usefulness: additive merge of counts
+        - word_frequency: weighted average favoring existing
+        - meta.turns_learned: add ingested count
+        """
+        # Prompt-file affinity: take max per pair
+        existing_aff = self.state.get("prompt_file_affinity", {})
+        for word, files in ingested.get("prompt_file_affinity", {}).items():
+            if word not in existing_aff:
+                existing_aff[word] = {}
+            for f, score in files.items():
+                existing_aff[word][f] = max(existing_aff[word].get(f, 0.0), score)
+        self.state["prompt_file_affinity"] = existing_aff
+
+        # Co-activation: union of related lists (deduplicated)
+        existing_coact = self.state.get("coactivation_learned", {})
+        for f, related in ingested.get("coactivation_learned", {}).items():
+            if f not in existing_coact:
+                existing_coact[f] = []
+            existing_set = set(existing_coact[f])
+            for r in related:
+                if r not in existing_set:
+                    existing_coact[f].append(r)
+                    existing_set.add(r)
+        self.state["coactivation_learned"] = existing_coact
+
+        # File rhythm: prefer existing
+        existing_rhythm = self.state.get("file_rhythm", {})
+        for f, decay in ingested.get("file_rhythm", {}).items():
+            if f not in existing_rhythm:
+                existing_rhythm[f] = decay
+        self.state["file_rhythm"] = existing_rhythm
+
+        # Usefulness: additive
+        existing_useful = self.state.get("usefulness", {})
+        for f, stats in ingested.get("usefulness", {}).items():
+            if f not in existing_useful:
+                existing_useful[f] = {"injected": 0, "accessed": 0, "edited": 0}
+            for key in ("injected", "accessed", "edited"):
+                existing_useful[f][key] = existing_useful[f].get(key, 0) + stats.get(key, 0)
+        self.state["usefulness"] = existing_useful
+
+        # Word frequency: weighted average (favor existing 2:1)
+        existing_freq = self.state.get("word_frequency", {})
+        for word, freq in ingested.get("word_frequency", {}).items():
+            if word in existing_freq:
+                existing_freq[word] = round((existing_freq[word] * 2 + freq) / 3, 4)
+            else:
+                existing_freq[word] = freq
+        self.state["word_frequency"] = existing_freq
+
+        # Metadata
+        self.state["meta"]["turns_learned"] = (
+            self.state["meta"].get("turns_learned", 0)
+            + ingested.get("meta", {}).get("turns_learned", 0)
+        )
+        self.state["meta"]["last_learned"] = datetime.now().isoformat()
+        self.maturity = self._compute_maturity()
+
+        self._save()
 
     def summary(self) -> str:
         """One-line summary for the session dashboard."""

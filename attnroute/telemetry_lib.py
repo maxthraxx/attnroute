@@ -9,6 +9,7 @@ import hashlib
 import io
 import json
 import os
+import subprocess
 import sys
 import uuid
 from datetime import datetime
@@ -55,7 +56,30 @@ def ensure_telemetry_dir():
 # ============================================================================
 
 def get_project() -> str:
-    """Get current project path from CWD (lowercase, forward slashes)."""
+    """Get canonical project root, handling git worktrees.
+
+    Uses `git rev-parse --git-common-dir` to resolve worktrees to their
+    shared root. Falls back to CWD for non-git projects.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True, timeout=2
+        )
+        if result.returncode == 0:
+            common_git = Path(result.stdout.strip())
+            # --git-common-dir returns the shared .git dir
+            # For worktrees: /path/to/main/.git
+            # For normal repos: .git (relative)
+            # The parent of the resolved path is the canonical project root
+            if common_git.is_absolute():
+                return str(common_git.parent).lower().replace("\\", "/")
+            else:
+                # Relative path — resolve from CWD
+                return str((Path.cwd() / common_git).resolve().parent).lower().replace("\\", "/")
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    # Fallback: CWD (non-git projects)
     return str(Path.cwd()).lower().replace("\\", "/")
 
 

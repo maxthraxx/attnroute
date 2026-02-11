@@ -100,17 +100,20 @@ def get_search_index():
 
 def ensure_search_index_built():
     """Lazily build or update the search index if needed."""
-    global _search_index
-    if not SEARCH_AVAILABLE or _search_index is None:
+    if not SEARCH_AVAILABLE:
+        return
+
+    idx = get_search_index()
+    if idx is None:
         return
 
     try:
-        status = get_search_index().status()
+        status = idx.status()
         if status.get("indexed_documents", 0) == 0:
             # Index is empty - build it
             docs_root = resolve_docs_root()
-            get_search_index().build(docs_root)
-            print(f"[attnroute] Built search index with {get_search_index().status()['indexed_documents']} docs", file=sys.stderr)
+            idx.build(docs_root)
+            print(f"[attnroute] Built search index with {idx.status()['indexed_documents']} docs", file=sys.stderr)
     except Exception as e:
         print(f"[attnroute] Search index build failed: {e}", file=sys.stderr)
 
@@ -369,7 +372,7 @@ def load_keyword_config() -> tuple[dict[str, list[str]], dict[str, list[str]], l
             pass
 
     print("[attnroute] WARN: No keywords.json found — attnroute has no routing rules.", file=sys.stderr)
-    print("  Run 'attnroute-setup' to generate a keywords.json template.", file=sys.stderr)
+    print("  Run 'attnroute init' to generate a keywords.json template.", file=sys.stderr)
     return _DEFAULT_KEYWORDS, _DEFAULT_CO_ACTIVATION, []
 
 # ============================================================================

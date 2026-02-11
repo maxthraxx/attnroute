@@ -12,59 +12,43 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-try:
-    from attnroute.telemetry_lib import (
-        ATTN_STATE_PROJECT,
-        TELEMETRY_DIR,
-        ensure_telemetry_dir,
-        get_project,
-        load_router_overrides,
-        load_session_state,
-        load_stats_cache,
-        load_turns,
-        save_session_state,
-        windows_utf8_io,
-    )
+from attnroute.compat import try_import
+
+# Import telemetry lib
+_telem_imports, TELEMETRY_LIB_AVAILABLE = try_import(
+    "attnroute.telemetry_lib", "telemetry_lib",
+    ["ATTN_STATE_PROJECT", "TELEMETRY_DIR", "ensure_telemetry_dir", "get_project",
+     "load_router_overrides", "load_session_state", "load_stats_cache",
+     "load_turns", "save_session_state", "windows_utf8_io"]
+)
+if TELEMETRY_LIB_AVAILABLE:
+    ATTN_STATE_PROJECT = _telem_imports["ATTN_STATE_PROJECT"]
+    TELEMETRY_DIR = _telem_imports["TELEMETRY_DIR"]
+    ensure_telemetry_dir = _telem_imports["ensure_telemetry_dir"]
+    get_project = _telem_imports["get_project"]
+    load_router_overrides = _telem_imports["load_router_overrides"]
+    load_session_state = _telem_imports["load_session_state"]
+    load_stats_cache = _telem_imports["load_stats_cache"]
+    load_turns = _telem_imports["load_turns"]
+    save_session_state = _telem_imports["save_session_state"]
+    windows_utf8_io = _telem_imports["windows_utf8_io"]
     windows_utf8_io()
-except ImportError:
-    try:
-        sys.path.insert(0, str(Path(__file__).parent))
-        from telemetry_lib import (
-            ATTN_STATE_PROJECT,
-            TELEMETRY_DIR,
-            ensure_telemetry_dir,
-            get_project,
-            load_router_overrides,
-            load_session_state,
-            load_stats_cache,
-            load_turns,
-            save_session_state,
-            windows_utf8_io,
-        )
-        windows_utf8_io()
-    except ImportError:
-        sys.exit(0)
+else:
+    sys.exit(0)
 
-try:
-    from attnroute.learner import Learner
-    LEARNER_AVAILABLE = True
-except ImportError:
-    try:
-        from learner import Learner
-        LEARNER_AVAILABLE = True
-    except ImportError:
-        LEARNER_AVAILABLE = False
+# Import learner
+_learner_imports, LEARNER_AVAILABLE = try_import(
+    "attnroute.learner", "learner", ["Learner"]
+)
+if LEARNER_AVAILABLE:
+    Learner = _learner_imports["Learner"]
 
-# Try to import plugin system
-try:
-    from attnroute.plugins import get_plugins
-    PLUGINS_AVAILABLE = True
-except ImportError:
-    try:
-        from plugins import get_plugins
-        PLUGINS_AVAILABLE = True
-    except ImportError:
-        PLUGINS_AVAILABLE = False
+# Import plugin system
+_plugin_imports, PLUGINS_AVAILABLE = try_import(
+    "attnroute.plugins", "plugins", ["get_plugins"]
+)
+if PLUGINS_AVAILABLE:
+    get_plugins = _plugin_imports["get_plugins"]
 
 
 def detect_project_switch():

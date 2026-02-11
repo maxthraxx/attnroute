@@ -298,6 +298,30 @@ def cmd_plugins(args):
         print("Usage: attnroute plugins [list|enable|disable|status] [name]")
 
 
+def cmd_ingest(args):
+    """Bootstrap learner from Claude Code conversation history."""
+    from attnroute.ingest import ingest_transcripts
+    from attnroute.learner import Learner
+
+    print("Ingesting Claude Code transcripts...")
+    state = ingest_transcripts(project_filter=getattr(args, 'project', None))
+
+    if state["meta"]["turns_learned"] == 0:
+        print("No transcript data found in ~/.claude/projects/")
+        return
+
+    learner = Learner()
+    learner.merge_ingested_state(state)
+
+    turns = state["meta"]["turns_learned"]
+    files = len(state.get("coactivation_learned", {}))
+    affinities = len(state.get("prompt_file_affinity", {}))
+    print(f"Ingested {turns} turns across {files} files")
+    print(f"  Co-activation patterns: {files}")
+    print(f"  Prompt-file associations: {affinities} keywords")
+    print(f"  Learner maturity: {learner.maturity}")
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -379,6 +403,11 @@ For more information, visit: https://github.com/jeranaias/attnroute
                                 help="Plugin subcommand (default: list)")
     plugins_parser.add_argument("name", nargs="?", help="Plugin name (for enable/disable/status)")
 
+    # ingest command
+    ingest_parser = subparsers.add_parser("ingest", help="Bootstrap learner from Claude Code history")
+    ingest_parser.add_argument("--project", type=str, default=None,
+                               help="Filter to specific project (substring match)")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -397,6 +426,7 @@ For more information, visit: https://github.com/jeranaias/attnroute
         "version": cmd_version,
         "diagnostic": cmd_diagnostic,
         "plugins": cmd_plugins,
+        "ingest": cmd_ingest,
     }
 
     handler = commands.get(args.command)

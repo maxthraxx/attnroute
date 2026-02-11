@@ -195,34 +195,61 @@ def build_settings(python_cmd: str, use_entry_points: bool = False, include_pool
 def scan_projects() -> list:
     """Find directories with .claude/ that might benefit from keywords.json."""
     projects = []
-    # Check common project locations
-    home = Path.home()
-    search_dirs = [home]
+    seen = set()
 
-    # On Windows, also check drive roots for common project dirs
+    def add_if_project(path: Path):
+        """Check if path has .claude/ and add to results."""
+        try:
+            resolved = str(path.resolve())
+        except (OSError, ValueError):
+            return
+        if resolved in seen:
+            return
+        claude_dir = path / ".claude"
+        if claude_dir.is_dir():
+            seen.add(resolved)
+            projects.append({
+                "path": resolved,
+                "has_keywords": (claude_dir / "keywords.json").exists(),
+                "has_md": any(claude_dir.glob("**/*.md")),
+            })
+
+    # 1. Always check CWD first
+    add_if_project(Path.cwd())
+
+    # 2. Check immediate children of home (original behavior)
+    home = Path.home()
+    try:
+        for item in home.iterdir():
+            if item.is_dir() and not item.name.startswith("."):
+                add_if_project(item)
+    except PermissionError:
+        pass
+
+    # 3. Check two levels deep for common structures like ~/code/project/
+    try:
+        for item in home.iterdir():
+            if not item.is_dir() or item.name.startswith("."):
+                continue
+            try:
+                for subitem in item.iterdir():
+                    if subitem.is_dir() and not subitem.name.startswith("."):
+                        add_if_project(subitem)
+            except PermissionError:
+                continue
+    except PermissionError:
+        pass
+
+    # 4. On Windows, also check drive roots (one level deep)
     if sys.platform == "win32":
         for drive in ["C:\\", "D:\\"]:
             if Path(drive).exists():
-                search_dirs.append(Path(drive))
-
-    seen = set()
-    for search_dir in search_dirs:
-        try:
-            for item in search_dir.iterdir():
-                if not item.is_dir() or item.name.startswith("."):
+                try:
+                    for item in Path(drive).iterdir():
+                        if item.is_dir() and not item.name.startswith("."):
+                            add_if_project(item)
+                except PermissionError:
                     continue
-                claude_dir = item / ".claude"
-                if claude_dir.is_dir() and str(item) not in seen:
-                    seen.add(str(item))
-                    has_keywords = (claude_dir / "keywords.json").exists()
-                    has_md = any(claude_dir.glob("**/*.md"))
-                    projects.append({
-                        "path": str(item),
-                        "has_keywords": has_keywords,
-                        "has_md": has_md,
-                    })
-        except PermissionError:
-            continue
 
     return projects
 

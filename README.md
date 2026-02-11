@@ -56,10 +56,10 @@ claude
 ```
 
 ```
-Before attnroute:  1,569,434 tokens  (entire codebase)
-After attnroute:       2,027 tokens  (relevant symbols only)
+Before attnroute:  50,000-200,000 tokens per query  (file hunting via tool calls)
+After attnroute:           2,027 tokens per query  (pre-selected relevant context)
                    ══════════════════════════════════════
-                   99.87% reduction in 309ms
+                   95-98% reduction in 309ms
 ```
 
 ---
@@ -1168,6 +1168,7 @@ Built on ideas from:
 - **[Claude Code](https://github.com/anthropics/claude-code)** — Anthropic's excellent CLI that makes this integration possible
 - **[bm25s](https://github.com/xhluca/bm25s)** — Fast BM25 implementation in pure Python
 - **[model2vec](https://github.com/MinishLab/model2vec)** — Lightweight sentence embeddings
+- **[SWE-Pruner](https://arxiv.org/abs/2601.16746)** (Chen et al., 2026) — Self-adaptive context pruning for coding agents. Tackles the same context efficiency problem from the compression side (prune after accumulation) vs. attnroute's routing approach (select before injection)
 
 ---
 

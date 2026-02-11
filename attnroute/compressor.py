@@ -34,24 +34,24 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# Try to import telemetry lib for consistent paths and token estimation
-try:
-    from attnroute.telemetry_lib import TELEMETRY_DIR, estimate_tokens, windows_utf8_io
+from attnroute.compat import try_import
+
+# Import telemetry lib
+_telem_imports, TELEMETRY_LIB_AVAILABLE = try_import(
+    "attnroute.telemetry_lib", "telemetry_lib",
+    ["TELEMETRY_DIR", "estimate_tokens", "windows_utf8_io"]
+)
+if TELEMETRY_LIB_AVAILABLE:
+    TELEMETRY_DIR = _telem_imports["TELEMETRY_DIR"]
+    estimate_tokens = _telem_imports["estimate_tokens"]
+    windows_utf8_io = _telem_imports["windows_utf8_io"]
     windows_utf8_io()
-    TELEMETRY_LIB_AVAILABLE = True
-except ImportError:
-    try:
-        sys.path.insert(0, str(Path(__file__).parent))
-        from telemetry_lib import TELEMETRY_DIR, estimate_tokens, windows_utf8_io
-        windows_utf8_io()
-        TELEMETRY_LIB_AVAILABLE = True
-    except ImportError:
-        TELEMETRY_DIR = Path.home() / ".claude" / "telemetry"
-        TELEMETRY_LIB_AVAILABLE = False
-        # Fallback estimate_tokens if telemetry_lib not available
-        def estimate_tokens(text: str) -> int:
-            """Estimate token count from text (rough: ~3 chars per token)."""
-            return len(text) // 3
+else:
+    TELEMETRY_DIR = Path.home() / ".claude" / "telemetry"
+    # Fallback estimate_tokens if telemetry_lib not available
+    def estimate_tokens(text: str) -> int:
+        """Estimate token count from text (rough: ~3 chars per token)."""
+        return len(text) // 3
 
 # Try to import Anthropic SDK for compression
 try:

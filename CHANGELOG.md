@@ -5,6 +5,30 @@ All notable changes to attnroute will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - 2026-02-10
+
+### Added
+- `attnroute ingest` — bootstrap learner from Claude Code conversation history
+  in ~/.claude/projects/. Parses JSONL transcripts to seed co-activation patterns,
+  prompt-file affinity, and file rhythms so you don't start cold on established projects
+- Git worktree support — worktrees sharing the same repo now share project
+  identity, attention state, and keywords.json (resolves via git rev-parse --git-common-dir)
+- Version sync test to prevent __init__.py / pyproject.toml drift
+- SWE-Pruner (arxiv 2601.16746) added to related work acknowledgments
+
+### Changed
+- README benchmark framing: realistic per-query token comparison (50-200K → 2-5K)
+  with methodology-labeled 99.87% figure in benchmarks section
+- Extended compat.py usage to session_init, learner, compressor
+
+### Fixed
+- `scan_projects()` now checks CWD first and searches two levels deep from home,
+  fixing "No projects found" for projects in ~/code/*, ~/dev/*, etc.
+- Warning message referenced nonexistent `attnroute-setup` command, now correctly
+  says `attnroute init`
+- Stale `global _search_index` reference in ensure_search_index_built() now
+  uses get_search_index() accessor
+
 ## [0.5.3] - 2026-02-10
 
 ### Added
@@ -86,6 +110,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `attnroute init` and `attnroute status` commands
 - Zero required dependencies
 
+[0.5.4]: https://github.com/jeranaias/attnroute/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/jeranaias/attnroute/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/jeranaias/attnroute/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/jeranaias/attnroute/compare/v0.5.0...v0.5.1

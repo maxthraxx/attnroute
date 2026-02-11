@@ -5,6 +5,15 @@ All notable changes to attnroute will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.5] - 2026-02-10
+
+### Fixed
+- `update_attention()` referenced removed global `_search_index` instead of
+  `get_search_index()`, causing NameError for users with bm25s installed.
+  This was the same lazy-init bug partially fixed in 0.5.4 — second
+  occurrence at line 624 was missed. The crash caused the UserPromptSubmit
+  hook to silently fail, preventing all context injection.
+
 ## [0.5.4] - 2026-02-10
 
 ### Added
@@ -110,6 +119,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `attnroute init` and `attnroute status` commands
 - Zero required dependencies
 
+[0.5.5]: https://github.com/jeranaias/attnroute/compare/v0.5.4...v0.5.5
 [0.5.4]: https://github.com/jeranaias/attnroute/compare/v0.5.3...v0.5.4
 [0.5.3]: https://github.com/jeranaias/attnroute/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/jeranaias/attnroute/compare/v0.5.1...v0.5.2

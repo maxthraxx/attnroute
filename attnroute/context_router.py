@@ -621,7 +621,7 @@ def update_attention(state: dict, prompt: str) -> tuple[dict, set[str]]:
 
     # Phase 2: Semantic search (if available) OR keyword activation
     # Use semantic search with minimum score threshold for smarter selection
-    if SEARCH_AVAILABLE and _search_index:
+    if SEARCH_AVAILABLE and get_search_index():
         try:
             results = get_search_index().query(prompt, top_k=SEMANTIC_SEARCH_TOP_K)
             for path, relevance in results:
